@@ -1,0 +1,14 @@
+[package]
+name = "game-psp"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+psp = "0.3.6"
+uninit = { version = "0.5.1", default-features = false }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "z"
+panic = "abort"
