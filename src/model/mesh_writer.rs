@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use core::mem::size_of;
+use core::{mem::size_of, slice};
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -236,10 +236,10 @@ impl<'a> MeshWriter<'a> {
         }
     }
 
-    fn check_capacity(&mut self) -> MeshBuilderResult<&mut Self> {
-        if self.vertex_count < u16::MAX {
+    fn check_capacity(&mut self, count: usize) -> MeshBuilderResult<&mut Self> {
+        if (u16::MAX - self.vertex_count) as usize >= count {
             let capacity = self.vertex_buffer.len();
-            let requested = self.vertex_description.stride() * (self.vertex_count + 1) as usize;
+            let requested = self.vertex_description.stride() * (self.vertex_count as usize + count);
             if requested > capacity {
                 Err(MeshWriterError::OutOfMemory {
                     capacity,
@@ -253,9 +253,9 @@ impl<'a> MeshWriter<'a> {
         }
     }
 
-    pub fn insert(&mut self) -> MeshBuilderResult<&mut Self> {
-        self.check_capacity()?;
-        self.vertex_count += 1;
+    pub fn insert(&mut self, count: usize) -> MeshBuilderResult<&mut Self> {
+        self.check_capacity(count)?;
+        self.vertex_count += count as u16;
         Ok(self)
     }
 
@@ -264,20 +264,28 @@ impl<'a> MeshWriter<'a> {
         src: *const T,
         offset: usize,
         stride: usize,
+        count: usize,
     ) -> MeshBuilderResult<&mut Self> {
-        self.check_capacity()?;
-        let offset = (self.vertex_count as usize * self.vertex_description.stride) + offset;
-        core::ptr::copy_nonoverlapping(src as _, &mut self.vertex_buffer[offset], stride);
+        self.check_capacity(count)?;
+        for i in 0..count {
+            let offset =
+                ((self.vertex_count as usize + i) * self.vertex_description.stride) + offset;
+            core::ptr::copy_nonoverlapping(
+                (src as *const u8).add(i * stride) as _,
+                &mut self.vertex_buffer[offset],
+                stride,
+            );
+        }
         Ok(self)
     }
 
-    unsafe fn texcoord<T>(
+    unsafe fn texcoords<T>(
         &mut self,
         format: TexcoordFormat,
-        texcoord: &[T; 2],
+        texcoords: &[[T; 2]],
     ) -> MeshBuilderResult<&mut Self> {
         if self.vertex_description.texcoord_format == format {
-            self.write(texcoord.as_ptr(), 0, format.stride())
+            self.write(texcoords.as_ptr(), 0, format.stride(), texcoords.len())
         } else {
             Err(MeshWriterError::TexcoordFormat {
                 expected: self.vertex_description.texcoord_format,
@@ -285,24 +293,37 @@ impl<'a> MeshWriter<'a> {
         }
     }
 
+    pub fn texcoords_i8(&mut self, texcoords: &[[u8; 2]]) -> MeshBuilderResult<&mut Self> {
+        unsafe { self.texcoords(TexcoordFormat::U8, texcoords) }
+    }
+
     pub fn texcoord_i8(&mut self, texcoord: &[u8; 2]) -> MeshBuilderResult<&mut Self> {
-        unsafe { self.texcoord(TexcoordFormat::U8, texcoord) }
+        unsafe { self.texcoords(TexcoordFormat::U8, slice::from_raw_parts(texcoord, 1)) }
+    }
+
+    pub fn texcoords_i16(&mut self, texcoords: &[[u16; 2]]) -> MeshBuilderResult<&mut Self> {
+        unsafe { self.texcoords(TexcoordFormat::U16, texcoords) }
     }
 
     pub fn texcoord_i16(&mut self, texcoord: &[u16; 2]) -> MeshBuilderResult<&mut Self> {
-        unsafe { self.texcoord(TexcoordFormat::U16, texcoord) }
+        unsafe { self.texcoords(TexcoordFormat::U16, slice::from_raw_parts(texcoord, 1)) }
+    }
+
+    pub fn texcoords_f32(&mut self, texcoords: &[[f32; 2]]) -> MeshBuilderResult<&mut Self> {
+        unsafe { self.texcoords(TexcoordFormat::F32, texcoords) }
     }
 
     pub fn texcoord_f32(&mut self, texcoord: &[f32; 2]) -> MeshBuilderResult<&mut Self> {
-        unsafe { self.texcoord(TexcoordFormat::F32, texcoord) }
+        unsafe { self.texcoords(TexcoordFormat::F32, slice::from_raw_parts(texcoord, 1)) }
     }
 
-    unsafe fn color<T>(&mut self, color: T) -> MeshBuilderResult<&mut Self> {
+    unsafe fn colors<T>(&mut self, colors: &[T]) -> MeshBuilderResult<&mut Self> {
         if self.vertex_description.color_format.stride() == size_of::<T>() {
             self.write(
-                core::slice::from_raw_parts(&color, 1).as_ptr(),
+                colors.as_ptr(),
                 self.vertex_description.color_offset,
                 size_of::<T>(),
+                colors.len(),
             )
         } else {
             Err(MeshWriterError::ColorFormat {
@@ -311,24 +332,33 @@ impl<'a> MeshWriter<'a> {
         }
     }
 
+    pub fn colors_u16(&mut self, colors: &[u16]) -> MeshBuilderResult<&mut Self> {
+        unsafe { self.colors(colors) }
+    }
+
     pub fn color_u16(&mut self, color: u16) -> MeshBuilderResult<&mut Self> {
-        unsafe { self.color(color) }
+        unsafe { self.colors(slice::from_raw_parts(&color, 1)) }
+    }
+
+    pub fn colors_u32(&mut self, colors: &[u32]) -> MeshBuilderResult<&mut Self> {
+        unsafe { self.colors(colors) }
     }
 
     pub fn color_u32(&mut self, color: u32) -> MeshBuilderResult<&mut Self> {
-        unsafe { self.color(color) }
+        unsafe { self.colors(slice::from_raw_parts(&color, 1)) }
     }
 
-    unsafe fn normal<T>(
+    unsafe fn normals<T>(
         &mut self,
         format: NormalFormat,
-        normal: &[T; 3],
+        normals: &[[T; 3]],
     ) -> MeshBuilderResult<&mut Self> {
         if self.vertex_description.normal_format == format {
             self.write(
-                normal.as_ptr(),
+                normals.as_ptr(),
                 self.vertex_description.normal_offset,
                 format.stride(),
+                normals.len(),
             )
         } else {
             Err(MeshWriterError::NormalFormat {
@@ -337,28 +367,41 @@ impl<'a> MeshWriter<'a> {
         }
     }
 
+    pub fn normals_i8(&mut self, normals: &[[i8; 3]]) -> MeshBuilderResult<&mut Self> {
+        unsafe { self.normals(NormalFormat::I8, normals) }
+    }
+
     pub fn normal_i8(&mut self, normal: &[i8; 3]) -> MeshBuilderResult<&mut Self> {
-        unsafe { self.normal(NormalFormat::I8, normal) }
+        unsafe { self.normals(NormalFormat::I8, slice::from_raw_parts(normal, 1)) }
+    }
+
+    pub fn normals_i16(&mut self, normals: &[[i16; 3]]) -> MeshBuilderResult<&mut Self> {
+        unsafe { self.normals(NormalFormat::I16, normals) }
     }
 
     pub fn normal_i16(&mut self, normal: &[i16; 3]) -> MeshBuilderResult<&mut Self> {
-        unsafe { self.normal(NormalFormat::I16, normal) }
+        unsafe { self.normals(NormalFormat::I16, slice::from_raw_parts(normal, 1)) }
+    }
+
+    pub fn normals_f32(&mut self, normals: &[[f32; 3]]) -> MeshBuilderResult<&mut Self> {
+        unsafe { self.normals(NormalFormat::F32, normals) }
     }
 
     pub fn normal_f32(&mut self, normal: &[f32; 3]) -> MeshBuilderResult<&mut Self> {
-        unsafe { self.normal(NormalFormat::F32, normal) }
+        unsafe { self.normals(NormalFormat::F32, slice::from_raw_parts(normal, 1)) }
     }
 
-    unsafe fn position<T>(
+    unsafe fn positions<T>(
         &mut self,
         format: PositionFormat,
-        position: &[T; 3],
+        positions: &[[T; 3]],
     ) -> MeshBuilderResult<&mut Self> {
         if self.vertex_description.position_format == format {
             self.write(
-                position.as_ptr(),
+                positions.as_ptr(),
                 self.vertex_description.position_offset,
                 format.stride(),
+                positions.len(),
             )
         } else {
             Err(MeshWriterError::PositionFormat {
@@ -367,16 +410,28 @@ impl<'a> MeshWriter<'a> {
         }
     }
 
+    pub fn positions_i8(&mut self, positions: &[[i8; 3]]) -> MeshBuilderResult<&mut Self> {
+        unsafe { self.positions(PositionFormat::I8, positions) }
+    }
+
     pub fn position_i8(&mut self, position: &[i8; 3]) -> MeshBuilderResult<&mut Self> {
-        unsafe { self.position(PositionFormat::I8, position) }
+        unsafe { self.positions(PositionFormat::I8, slice::from_raw_parts(position, 1)) }
+    }
+
+    pub fn positions_i16(&mut self, positions: &[[i16; 3]]) -> MeshBuilderResult<&mut Self> {
+        unsafe { self.positions(PositionFormat::I16, positions) }
     }
 
     pub fn position_i16(&mut self, position: &[i16; 3]) -> MeshBuilderResult<&mut Self> {
-        unsafe { self.position(PositionFormat::I16, position) }
+        unsafe { self.positions(PositionFormat::I16, slice::from_raw_parts(position, 1)) }
+    }
+
+    pub fn positions_f32(&mut self, positions: &[[f32; 3]]) -> MeshBuilderResult<&mut Self> {
+        unsafe { self.positions(PositionFormat::F32, positions) }
     }
 
     pub fn position_f32(&mut self, position: &[f32; 3]) -> MeshBuilderResult<&mut Self> {
-        unsafe { self.position(PositionFormat::F32, position) }
+        unsafe { self.positions(PositionFormat::F32, slice::from_raw_parts(position, 1)) }
     }
 
     pub fn vertex_count(&self) -> u16 {

@@ -42,24 +42,18 @@ impl Gizmo {
         let vertex_type = vertex_description.clone().vertex_type();
         let mut vertex_buffer = Align16([0u8; 0xbf4]);
         let vertex_count = MeshWriter::new(vertex_description, &mut vertex_buffer.0)
-            .color_u32(0xff0000ff)?
-            .position_f32(&[1.0, 0.0, 0.0])?
-            .insert()?
-            .color_u32(0xff0000ff)?
-            .position_f32(&[-1.0, 0.0, 0.0])?
-            .insert()?
-            .color_u32(0xff00ff00)?
-            .position_f32(&[0.0, 1.0, 0.0])?
-            .insert()?
-            .color_u32(0xff00ff00)?
-            .position_f32(&[0.0, -1.0, 0.0])?
-            .insert()?
-            .color_u32(0xffff0000)?
-            .position_f32(&[0.0, 0.0, 1.0])?
-            .insert()?
-            .color_u32(0xffff0000)?
-            .position_f32(&[0.0, 0.0, -1.0])?
-            .insert()?
+            .colors_u32(&[
+                0xff0000ff, 0xff0000ff, 0xff00ff00, 0xff00ff00, 0xffff0000, 0xffff0000,
+            ])?
+            .positions_f32(&[
+                [1.0, 0.0, 0.0],
+                [-1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, -1.0, 0.0],
+                [0.0, 0.0, 1.0],
+                [0.0, 0.0, -1.0],
+            ])?
+            .insert(6)?
             .vertex_count() as i32;
 
         Ok(Self {
