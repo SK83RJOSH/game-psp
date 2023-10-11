@@ -253,7 +253,7 @@ impl<'a> MeshWriter<'a> {
         }
     }
 
-    pub fn insert(&mut self, count: usize) -> MeshBuilderResult<&mut Self> {
+    pub fn advance(&mut self, count: usize) -> MeshBuilderResult<&mut Self> {
         self.check_capacity(count)?;
         self.vertex_count += count as u16;
         Ok(self)
@@ -434,7 +434,7 @@ impl<'a> MeshWriter<'a> {
         unsafe { self.positions(PositionFormat::F32, slice::from_raw_parts(position, 1)) }
     }
 
-    pub fn vertex_count(&self) -> u16 {
+    pub fn tell(&self) -> u16 {
         self.vertex_count
     }
 }

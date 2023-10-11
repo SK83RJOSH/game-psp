@@ -53,8 +53,8 @@ impl Gizmo {
                 [0.0, 0.0, 1.0],
                 [0.0, 0.0, -1.0],
             ])?
-            .insert(6)?
-            .vertex_count() as i32;
+            .advance(6)?
+            .tell() as i32;
 
         Ok(Self {
             vertex_type,
