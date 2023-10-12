@@ -4,6 +4,26 @@ use core::{mem::size_of, slice};
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq)]
+pub enum WeightFormat {
+    None,
+    U8,
+    U16,
+    F32,
+}
+
+impl WeightFormat {
+    pub fn stride(&self) -> usize {
+        match *self {
+            WeightFormat::None => 0,
+            WeightFormat::U8 => size_of::<u8>(),
+            WeightFormat::U16 => size_of::<u16>(),
+            WeightFormat::F32 => size_of::<f32>(),
+        }
+    }
+}
+
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum TexcoordFormat {
     None,
     U8,
@@ -83,11 +103,27 @@ impl PositionFormat {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Count(usize);
+
+pub const COUNT_1: Count = Count(1);
+pub const COUNT_2: Count = Count(2);
+pub const COUNT_3: Count = Count(3);
+pub const COUNT_4: Count = Count(4);
+pub const COUNT_5: Count = Count(5);
+pub const COUNT_6: Count = Count(6);
+pub const COUNT_7: Count = Count(7);
+pub const COUNT_8: Count = Count(8);
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct VertexDescription {
+    weight_format: WeightFormat,
     texcoord_format: TexcoordFormat,
     color_format: ColorFormat,
     normal_format: NormalFormat,
     position_format: PositionFormat,
+    weight_count: Count,
+    morph_count: Count,
+    texcoord_offset: usize,
     color_offset: usize,
     normal_offset: usize,
     position_offset: usize,
@@ -96,16 +132,23 @@ pub struct VertexDescription {
 
 impl VertexDescription {
     pub fn vertex_type(&self) -> psp::sys::VertexType {
-        let (tex, nor, pos) = (
+        let (tf, nf, pf, wf, wc, mc) = (
             self.texcoord_format as i32,
             (self.normal_format as i32) << 2,
             (self.position_format as i32 + 1) << 7,
+            (self.weight_format as i32) << 9,
+            (self.weight_count.0 as i32 - 1) << 14,
+            (self.morph_count.0 as i32 - 1) << 18,
         );
-        let col = match self.color_format {
+        let cf = match self.color_format {
             ColorFormat::None => 0,
             _ => (self.color_format as i32 + 3) << 2,
         };
-        psp::sys::VertexType::from_bits_truncate(tex | col | nor | pos)
+        psp::sys::VertexType::from_bits_truncate(tf | cf | nf | pf | wf | wc | mc)
+    }
+
+    pub fn weight_format(&self) -> WeightFormat {
+        self.weight_format
     }
 
     pub fn texcoord_format(&self) -> TexcoordFormat {
@@ -122,6 +165,17 @@ impl VertexDescription {
 
     pub fn position_format(&self) -> PositionFormat {
         self.position_format
+    }
+
+    pub fn weight_count(&self) -> Option<Count> {
+        match self.weight_format {
+            WeightFormat::None => None,
+            _ => Some(self.weight_count),
+        }
+    }
+
+    pub fn morph_count(&self) -> usize {
+        self.morph_count.0
     }
 
     pub fn texcoord_offset(&self) -> Option<usize> {
@@ -155,20 +209,42 @@ impl VertexDescription {
 }
 
 pub struct VertexDescriptionBuilder {
+    weight_format: WeightFormat,
+    weight_count: Count,
     texcoord_format: TexcoordFormat,
     color_format: ColorFormat,
     normal_format: NormalFormat,
     position_format: PositionFormat,
+    morph_count: Count,
 }
 
 impl VertexDescriptionBuilder {
     pub fn new(position_format: PositionFormat) -> Self {
         Self {
+            weight_format: WeightFormat::None,
+            weight_count: COUNT_1,
             texcoord_format: TexcoordFormat::None,
             color_format: ColorFormat::None,
             normal_format: NormalFormat::None,
             position_format,
+            morph_count: COUNT_1,
         }
+    }
+
+    pub fn weight_format(&mut self, weight_format: WeightFormat) -> &mut Self {
+        self.weight_format = weight_format;
+        self.weight_count = COUNT_1;
+        self
+    }
+
+    pub fn weight_format_with_count(
+        &mut self,
+        weight_format: WeightFormat,
+        weight_count: Count,
+    ) -> &mut Self {
+        self.weight_format = weight_format;
+        self.weight_count = weight_count;
+        self
     }
 
     pub fn texcoord_format(&mut self, texcoord_format: TexcoordFormat) -> &mut Self {
@@ -191,16 +267,27 @@ impl VertexDescriptionBuilder {
         self
     }
 
+    pub fn morph_count(&mut self, morph_count: Count) -> &mut Self {
+        self.morph_count = morph_count;
+        self
+    }
+
     pub fn build(&self) -> VertexDescription {
-        let color_offset = self.texcoord_format.stride();
+        let weight_count = self.weight_count.0;
+        let texcoord_offset = self.weight_format.stride() * weight_count;
+        let color_offset = texcoord_offset + self.texcoord_format.stride();
         let normal_offset = color_offset + self.color_format.stride();
         let position_offset = normal_offset + self.normal_format.stride();
         let stride = position_offset + self.position_format.stride();
         VertexDescription {
+            weight_format: self.weight_format,
             texcoord_format: self.texcoord_format,
             color_format: self.color_format,
             normal_format: self.normal_format,
             position_format: self.position_format,
+            weight_count: self.weight_count,
+            morph_count: self.morph_count,
+            texcoord_offset,
             color_offset,
             normal_offset,
             position_offset,
@@ -213,10 +300,13 @@ impl VertexDescriptionBuilder {
 pub enum MeshWriterError {
     AtMaxVertexCount,
     OutOfMemory { capacity: usize, requested: usize },
+    WeightFormat { expected: WeightFormat },
     TexcoordFormat { expected: TexcoordFormat },
     ColorFormat { expected: ColorFormat },
     NormalFormat { expected: NormalFormat },
     PositionFormat { expected: PositionFormat },
+    WeightCount { expected: usize },
+    PositionCount { expected: usize },
 }
 
 pub struct MeshWriter<'a> {
@@ -279,13 +369,124 @@ impl<'a> MeshWriter<'a> {
         Ok(self)
     }
 
+    unsafe fn weights<T, const WEIGHT_COUNT: usize>(
+        &mut self,
+        format: WeightFormat,
+        weights: &[T],
+    ) -> MeshBuilderResult<&mut Self> {
+        if self.vertex_description.weight_format == format {
+            if WEIGHT_COUNT == self.vertex_description.weight_count.0 {
+                self.write(
+                    weights.as_ptr(),
+                    0,
+                    format.stride() * WEIGHT_COUNT,
+                    weights.len() / WEIGHT_COUNT,
+                )
+            } else {
+                Err(MeshWriterError::WeightCount {
+                    expected: self.vertex_description.weight_count.0,
+                })
+            }
+        } else {
+            Err(MeshWriterError::WeightFormat {
+                expected: self.vertex_description.weight_format,
+            })
+        }
+    }
+
+    pub fn weights_u8(&mut self, weights: &[u8]) -> MeshBuilderResult<&mut Self> {
+        unsafe { self.weights::<u8, 1>(WeightFormat::U8, weights) }
+    }
+
+    pub fn weight_u8(&mut self, weight: u8) -> MeshBuilderResult<&mut Self> {
+        unsafe { self.weights::<u8, 1>(WeightFormat::U8, &[weight]) }
+    }
+
+    pub fn weights_multi_u8<const N: usize>(
+        &mut self,
+        weights: &[[u8; N]],
+    ) -> MeshBuilderResult<&mut Self> {
+        unsafe {
+            self.weights::<u8, N>(
+                WeightFormat::U8,
+                slice::from_raw_parts(weights[0].as_ptr(), weights.len() * N),
+            )
+        }
+    }
+
+    pub fn weight_multi_u8<const N: usize>(
+        &mut self,
+        weight: &[u8; N],
+    ) -> MeshBuilderResult<&mut Self> {
+        unsafe { self.weights::<u8, N>(WeightFormat::U8, weight) }
+    }
+
+    pub fn weights_u16(&mut self, weights: &[u16]) -> MeshBuilderResult<&mut Self> {
+        unsafe { self.weights::<u16, 1>(WeightFormat::U16, weights) }
+    }
+
+    pub fn weight_u16(&mut self, weight: u16) -> MeshBuilderResult<&mut Self> {
+        unsafe { self.weights::<u16, 1>(WeightFormat::U16, &[weight]) }
+    }
+
+    pub fn weights_multi_u16<const N: usize>(
+        &mut self,
+        weights: &[[u16; N]],
+    ) -> MeshBuilderResult<&mut Self> {
+        unsafe {
+            self.weights::<u16, N>(
+                WeightFormat::U16,
+                slice::from_raw_parts(weights[0].as_ptr(), weights.len() * N),
+            )
+        }
+    }
+
+    pub fn weight_multi_u16<const N: usize>(
+        &mut self,
+        weight: &[u16; N],
+    ) -> MeshBuilderResult<&mut Self> {
+        unsafe { self.weights::<u16, N>(WeightFormat::U16, weight) }
+    }
+
+    pub fn weights_f32(&mut self, weights: &[f32]) -> MeshBuilderResult<&mut Self> {
+        unsafe { self.weights::<f32, 1>(WeightFormat::F32, weights) }
+    }
+
+    pub fn weight_f32(&mut self, weight: f32) -> MeshBuilderResult<&mut Self> {
+        unsafe { self.weights::<f32, 1>(WeightFormat::F32, &[weight]) }
+    }
+
+    pub fn weights_multi_f32<const N: usize>(
+        &mut self,
+        weights: &[[f32; N]],
+    ) -> MeshBuilderResult<&mut Self> {
+        unsafe {
+            self.weights::<f32, N>(
+                WeightFormat::F32,
+                slice::from_raw_parts(weights[0].as_ptr(), weights.len() * N),
+            )
+        }
+    }
+
+    pub fn weight_multi_f32<const N: usize>(
+        &mut self,
+        weight: &[f32; N],
+    ) -> MeshBuilderResult<&mut Self> {
+        unsafe { self.weights::<f32, N>(WeightFormat::F32, weight) }
+    }
+
     unsafe fn texcoords<T>(
         &mut self,
         format: TexcoordFormat,
         texcoords: &[[T; 2]],
     ) -> MeshBuilderResult<&mut Self> {
         if self.vertex_description.texcoord_format == format {
-            self.write(texcoords.as_ptr(), 0, format.stride(), texcoords.len())
+            self.write(
+                texcoords.as_ptr(),
+                self.vertex_description.texcoord_offset,
+                format.stride(),
+                texcoords.len(),
+            )
         } else {
             Err(MeshWriterError::TexcoordFormat {
                 expected: self.vertex_description.texcoord_format,
@@ -337,7 +538,7 @@ impl<'a> MeshWriter<'a> {
     }
 
     pub fn color_u16(&mut self, color: u16) -> MeshBuilderResult<&mut Self> {
-        unsafe { self.colors(slice::from_raw_parts(&color, 1)) }
+        unsafe { self.colors(&[color]) }
     }
 
     pub fn colors_u32(&mut self, colors: &[u32]) -> MeshBuilderResult<&mut Self> {
@@ -345,7 +546,7 @@ impl<'a> MeshWriter<'a> {
     }
 
     pub fn color_u32(&mut self, color: u32) -> MeshBuilderResult<&mut Self> {
-        unsafe { self.colors(slice::from_raw_parts(&color, 1)) }
+        unsafe { self.colors(&[color]) }
     }
 
     unsafe fn normals<T>(
