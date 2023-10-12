@@ -10,6 +10,9 @@ use mem::*;
 mod model;
 use model::*;
 
+mod timer;
+use timer::*;
+
 use core::mem::MaybeUninit;
 use psp::sys::*;
 use uninit::uninit_array;
@@ -32,26 +35,35 @@ struct Gizmo {
     vertex_type: VertexType,
     vertex_count: i32,
     vertex_buffer: Align16<[u8; 0xbf4]>,
+    morph_weight: f32,
 }
 
 impl Gizmo {
     fn new() -> Result<Self, MeshWriterError> {
         let vertex_description = VertexDescriptionBuilder::new(PositionFormat::F32)
             .color_format(ColorFormat::R8G8B8A8)
+            .morph_count(COUNT_2)
             .build();
         let vertex_type = vertex_description.clone().vertex_type();
         let mut vertex_buffer = Align16([0u8; 0xbf4]);
         let vertex_count = MeshWriter::new(vertex_description, &mut vertex_buffer.0)
             .colors_u32(&[
-                0xff0000ff, 0xff0000ff, 0xff00ff00, 0xff00ff00, 0xffff0000, 0xffff0000,
+                0xff0000ff, 0xffffff00, 0xff0000ff, 0xffffff00, 0xff00ff00, 0xffff00ff, 0xff00ff00,
+                0xffff00ff, 0xffff0000, 0xff00ffff, 0xffff0000, 0xff00ffff,
             ])?
             .positions_f32(&[
                 [1.0, 0.0, 0.0],
                 [-1.0, 0.0, 0.0],
+                [-1.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
                 [0.0, 1.0, 0.0],
                 [0.0, -1.0, 0.0],
+                [0.0, -1.0, 0.0],
+                [0.0, 1.0, 0.0],
                 [0.0, 0.0, 1.0],
                 [0.0, 0.0, -1.0],
+                [0.0, 0.0, -1.0],
+                [0.0, 0.0, 1.0],
             ])?
             .advance(6)?
             .tell() as i32;
@@ -60,11 +72,24 @@ impl Gizmo {
             vertex_type,
             vertex_count,
             vertex_buffer,
+            morph_weight: 0.0,
         })
     }
 
-    fn draw(&self) {
+    fn draw(&mut self, delta: f32) {
         unsafe {
+            self.morph_weight += delta;
+            self.morph_weight %= 2.0;
+
+            let weight = if self.morph_weight > 1.0 {
+                1.0 - (self.morph_weight - 1.0)
+            } else {
+                self.morph_weight
+            };
+
+            sceGuMorphWeight(0, weight);
+            sceGuMorphWeight(1, 1.0 - weight);
+
             sceGumLoadIdentity();
             sceGumTranslate(&ScePspFVector3 {
                 x: 0.0,
@@ -90,19 +115,23 @@ impl Gizmo {
 
 struct World {
     gizmo: Option<Gizmo>,
+    timer: Timer,
 }
 
 impl World {
     fn new() -> Self {
         Self {
             gizmo: Gizmo::new().ok(),
+            timer: Timer::new(),
         }
     }
 
-    fn draw(&self) {
-        if let Some(gizmo) = &self.gizmo {
-            gizmo.draw()
+    fn draw(&mut self) {
+        let delta = self.timer.delta_f32();
+        if let Some(gizmo) = &mut self.gizmo {
+            gizmo.draw(delta)
         }
+        self.timer.step()
     }
 }
 
@@ -112,16 +141,16 @@ fn psp_main() {
     let mut buffers = GraphicsBuffer::default();
     init_graphics(&mut buffers);
 
-    let world = World::new();
+    let mut world = World::new();
 
     loop {
-        draw_frame(&mut buffers, &world);
+        draw_frame(&mut buffers, &mut world);
     }
 
     // sceGuTerm();
 }
 
-fn draw_frame(buffer: &mut GraphicsBuffer, world: &World) {
+fn draw_frame(buffer: &mut GraphicsBuffer, world: &mut World) {
     unsafe {
         sceGuStart(
             GuContextType::Direct,
