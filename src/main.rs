@@ -47,11 +47,11 @@ impl Gizmo {
         let vertex_type = vertex_description.clone().vertex_type();
         let mut vertex_buffer = Align16([0u8; 0xbf4]);
         let vertex_count = MeshWriter::new(vertex_description, &mut vertex_buffer.0)
-            .colors_u32(&[
+            .colors::<u32>(&[
                 0xff0000ff, 0xffffff00, 0xff0000ff, 0xffffff00, 0xff00ff00, 0xffff00ff, 0xff00ff00,
                 0xffff00ff, 0xffff0000, 0xff00ffff, 0xffff0000, 0xff00ffff,
             ])?
-            .positions_f32(&[
+            .positions(&[
                 [1.0, 0.0, 0.0],
                 [-1.0, 0.0, 0.0],
                 [-1.0, 0.0, 0.0],
