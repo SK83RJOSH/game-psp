@@ -396,20 +396,18 @@ impl<'a> MeshWriter<'a> {
     }
 
     fn check_capacity(&mut self, count: usize) -> MeshBuilderResult<&mut Self> {
-        if (u16::MAX - self.vertex_count) as usize >= count {
-            let capacity = self.vertex_buffer.len();
-            let requested = self.vertex_description.stride() * (self.vertex_count as usize + count);
-            if requested > capacity {
-                Err(MeshWriterError::OutOfMemory {
-                    capacity,
-                    requested,
-                })
-            } else {
-                Ok(self)
-            }
-        } else {
-            Err(MeshWriterError::AtMaxVertexCount)
+        if count > (u16::MAX - self.vertex_count) as usize {
+            return Err(MeshWriterError::AtMaxVertexCount);
         }
+        let capacity = self.vertex_buffer.len();
+        let requested = self.vertex_description.stride() * (self.vertex_count as usize + count);
+        if requested > capacity {
+            return Err(MeshWriterError::OutOfMemory {
+                capacity,
+                requested,
+            });
+        }
+        Ok(self)
     }
 
     pub fn advance(&mut self, count: usize) -> MeshBuilderResult<&mut Self> {
@@ -442,37 +440,34 @@ impl<'a> MeshWriter<'a> {
         Ok(self)
     }
 
-    unsafe fn write_weights<T, const WEIGHT_COUNT: usize>(
+    unsafe fn write_weights<T: Weight, const WEIGHT_COUNT: usize>(
         &mut self,
-        format: WeightFormat,
         weights: &[T],
     ) -> MeshBuilderResult<&mut Self> {
-        if self.vertex_description.weight_format == format {
-            if WEIGHT_COUNT == self.vertex_description.weight_count.0 {
-                self.write(
-                    weights.as_ptr(),
-                    0,
-                    format.stride() * WEIGHT_COUNT,
-                    weights.len() / WEIGHT_COUNT,
-                )
-            } else {
-                Err(MeshWriterError::WeightCount {
-                    expected: self.vertex_description.weight_count.0,
-                })
-            }
-        } else {
-            Err(MeshWriterError::WeightFormat {
+        if self.vertex_description.weight_format != T::FORMAT {
+            return Err(MeshWriterError::WeightFormat {
                 expected: self.vertex_description.weight_format,
-            })
+            });
         }
+        if WEIGHT_COUNT != self.vertex_description.weight_count.0 {
+            return Err(MeshWriterError::WeightCount {
+                expected: self.vertex_description.weight_count.0,
+            });
+        }
+        self.write(
+            weights.as_ptr(),
+            0,
+            T::FORMAT.stride() * WEIGHT_COUNT,
+            weights.len() / WEIGHT_COUNT,
+        )
     }
 
     pub fn weights<T: Weight>(&mut self, weights: &[T]) -> MeshBuilderResult<&mut Self> {
-        unsafe { self.write_weights::<T, 1>(T::FORMAT, weights) }
+        unsafe { self.write_weights::<T, 1>(weights) }
     }
 
     pub fn weight<T: Weight>(&mut self, weight: T) -> MeshBuilderResult<&mut Self> {
-        unsafe { self.write_weights::<T, 1>(T::FORMAT, &[weight]) }
+        unsafe { self.write_weights::<T, 1>(&[weight]) }
     }
 
     pub fn weights_multi<T: Weight, const N: usize>(
@@ -480,10 +475,10 @@ impl<'a> MeshWriter<'a> {
         weights: &[[T; N]],
     ) -> MeshBuilderResult<&mut Self> {
         unsafe {
-            self.write_weights::<T, N>(
-                T::FORMAT,
-                slice::from_raw_parts(weights[0].as_ptr(), weights.len() * N),
-            )
+            self.write_weights::<T, N>(slice::from_raw_parts(
+                weights[0].as_ptr(),
+                weights.len() * N,
+            ))
         }
     }
 
@@ -491,23 +486,22 @@ impl<'a> MeshWriter<'a> {
         &mut self,
         weight: &[T; N],
     ) -> MeshBuilderResult<&mut Self> {
-        unsafe { self.write_weights::<T, N>(T::FORMAT, weight) }
+        unsafe { self.write_weights::<T, N>(weight) }
     }
 
     pub fn texcoords<T: Texcoord>(&mut self, texcoords: &[T]) -> MeshBuilderResult<&mut Self> {
-        if self.vertex_description.texcoord_format == T::FORMAT {
-            unsafe {
-                self.write(
-                    texcoords.as_ptr(),
-                    self.vertex_description.texcoord_offset,
-                    T::FORMAT.stride(),
-                    texcoords.len(),
-                )
-            }
-        } else {
-            Err(MeshWriterError::TexcoordFormat {
+        if self.vertex_description.texcoord_format != T::FORMAT {
+            return Err(MeshWriterError::TexcoordFormat {
                 expected: self.vertex_description.texcoord_format,
-            })
+            });
+        }
+        unsafe {
+            self.write(
+                texcoords.as_ptr(),
+                self.vertex_description.texcoord_offset,
+                T::FORMAT.stride(),
+                texcoords.len(),
+            )
         }
     }
 
@@ -516,19 +510,18 @@ impl<'a> MeshWriter<'a> {
     }
 
     pub fn colors<T: Color>(&mut self, colors: &[T]) -> MeshBuilderResult<&mut Self> {
-        if self.vertex_description.color_format.stride() == size_of::<T>() {
-            unsafe {
-                self.write(
-                    colors.as_ptr(),
-                    self.vertex_description.color_offset,
-                    size_of::<T>(),
-                    colors.len(),
-                )
-            }
-        } else {
-            Err(MeshWriterError::ColorFormat {
+        if self.vertex_description.color_format.stride() != size_of::<T>() {
+            return Err(MeshWriterError::ColorFormat {
                 expected: self.vertex_description.color_format,
-            })
+            });
+        }
+        unsafe {
+            self.write(
+                colors.as_ptr(),
+                self.vertex_description.color_offset,
+                size_of::<T>(),
+                colors.len(),
+            )
         }
     }
 
@@ -537,19 +530,18 @@ impl<'a> MeshWriter<'a> {
     }
 
     pub fn normals<T: Normal>(&mut self, normals: &[T]) -> MeshBuilderResult<&mut Self> {
-        if self.vertex_description.normal_format == T::FORMAT {
-            unsafe {
-                self.write(
-                    normals.as_ptr(),
-                    self.vertex_description.normal_offset,
-                    T::FORMAT.stride(),
-                    normals.len(),
-                )
-            }
-        } else {
-            Err(MeshWriterError::NormalFormat {
+        if self.vertex_description.normal_format != T::FORMAT {
+            return Err(MeshWriterError::NormalFormat {
                 expected: self.vertex_description.normal_format,
-            })
+            });
+        }
+        unsafe {
+            self.write(
+                normals.as_ptr(),
+                self.vertex_description.normal_offset,
+                T::FORMAT.stride(),
+                normals.len(),
+            )
         }
     }
 
@@ -558,19 +550,18 @@ impl<'a> MeshWriter<'a> {
     }
 
     pub fn positions<T: Position>(&mut self, positions: &[T]) -> MeshBuilderResult<&mut Self> {
-        if self.vertex_description.position_format == T::FORMAT {
-            unsafe {
-                self.write(
-                    positions.as_ptr(),
-                    self.vertex_description.position_offset,
-                    T::FORMAT.stride(),
-                    positions.len(),
-                )
-            }
-        } else {
-            Err(MeshWriterError::PositionFormat {
+        if self.vertex_description.position_format != T::FORMAT {
+            return Err(MeshWriterError::PositionFormat {
                 expected: self.vertex_description.position_format,
-            })
+            });
+        }
+        unsafe {
+            self.write(
+                positions.as_ptr(),
+                self.vertex_description.position_offset,
+                T::FORMAT.stride(),
+                positions.len(),
+            )
         }
     }
 
