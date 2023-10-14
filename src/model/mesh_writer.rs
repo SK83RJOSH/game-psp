@@ -440,7 +440,7 @@ impl<'a> MeshWriter<'a> {
         Ok(self)
     }
 
-    unsafe fn write_weights<T: Weight, const WEIGHT_COUNT: usize>(
+    fn write_weights<T: Weight, const WEIGHT_COUNT: usize>(
         &mut self,
         weights: &[T],
     ) -> MeshBuilderResult<&mut Self> {
@@ -454,39 +454,38 @@ impl<'a> MeshWriter<'a> {
                 expected: self.vertex_description.weight_count.0,
             });
         }
-        self.write(
-            weights.as_ptr(),
-            0,
-            T::FORMAT.stride() * WEIGHT_COUNT,
-            weights.len() / WEIGHT_COUNT,
-        )
+        unsafe {
+            self.write(
+                weights.as_ptr(),
+                0,
+                T::FORMAT.stride() * WEIGHT_COUNT,
+                weights.len() / WEIGHT_COUNT,
+            )
+        }
     }
 
     pub fn weights<T: Weight>(&mut self, weights: &[T]) -> MeshBuilderResult<&mut Self> {
-        unsafe { self.write_weights::<T, 1>(weights) }
+        self.write_weights::<T, 1>(weights)
     }
 
     pub fn weight<T: Weight>(&mut self, weight: T) -> MeshBuilderResult<&mut Self> {
-        unsafe { self.write_weights::<T, 1>(&[weight]) }
+        self.write_weights::<T, 1>(&[weight])
     }
 
     pub fn weights_multi<T: Weight, const N: usize>(
         &mut self,
         weights: &[[T; N]],
     ) -> MeshBuilderResult<&mut Self> {
-        unsafe {
-            self.write_weights::<T, N>(slice::from_raw_parts(
-                weights[0].as_ptr(),
-                weights.len() * N,
-            ))
-        }
+        self.write_weights::<T, N>(unsafe {
+            slice::from_raw_parts(weights[0].as_ptr(), weights.len() * N)
+        })
     }
 
     pub fn weight_multi<T: Weight, const N: usize>(
         &mut self,
         weight: &[T; N],
     ) -> MeshBuilderResult<&mut Self> {
-        unsafe { self.write_weights::<T, N>(weight) }
+        self.write_weights::<T, N>(weight)
     }
 
     pub fn texcoords<T: Texcoord>(&mut self, texcoords: &[T]) -> MeshBuilderResult<&mut Self> {
