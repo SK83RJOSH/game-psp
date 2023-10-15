@@ -505,7 +505,7 @@ impl<'a> MeshWriter<'a> {
     }
 
     pub fn texcoord<T: Texcoord>(&mut self, texcoord: &T) -> MeshBuilderResult<&mut Self> {
-        self.texcoords(unsafe { slice::from_raw_parts(texcoord, 1) })
+        self.texcoords(slice::from_ref(texcoord))
     }
 
     pub fn colors<T: Color>(&mut self, colors: &[T]) -> MeshBuilderResult<&mut Self> {
@@ -545,7 +545,7 @@ impl<'a> MeshWriter<'a> {
     }
 
     pub fn normal<T: Normal>(&mut self, normal: &T) -> MeshBuilderResult<&mut Self> {
-        self.normals(unsafe { slice::from_raw_parts(normal, 1) })
+        self.normals(slice::from_ref(normal))
     }
 
     pub fn positions<T: Position>(&mut self, positions: &[T]) -> MeshBuilderResult<&mut Self> {
@@ -565,6 +565,6 @@ impl<'a> MeshWriter<'a> {
     }
 
     pub fn position<T: Position>(&mut self, position: &T) -> MeshBuilderResult<&mut Self> {
-        self.positions(unsafe { slice::from_raw_parts(position, 1) })
+        self.positions(slice::from_ref(position))
     }
 }
