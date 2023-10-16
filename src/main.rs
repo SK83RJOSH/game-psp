@@ -47,23 +47,21 @@ impl Gizmo {
         let vertex_type = vertex_description.clone().vertex_type();
         let mut vertex_buffer = Align16([0u8; 0xbf4]);
         let vertex_count = MeshWriter::new(vertex_description, &mut vertex_buffer.0)
-            .colors::<u32>(&[
-                0xff0000ff, 0xffffff00, 0xff0000ff, 0xffffff00, 0xff00ff00, 0xffff00ff, 0xff00ff00,
-                0xffff00ff, 0xffff0000, 0xff00ffff, 0xffff0000, 0xff00ffff,
+            .colors_morph(&[
+                [0xff0000ff_u32, 0xffffff00_u32],
+                [0xff0000ff_u32, 0xffffff00_u32],
+                [0xff00ff00_u32, 0xffff00ff_u32],
+                [0xff00ff00_u32, 0xffff00ff_u32],
+                [0xffff0000_u32, 0xff00ffff_u32],
+                [0xffff0000_u32, 0xff00ffff_u32],
             ])?
-            .positions(&[
-                [1.0, 0.0, 0.0],
-                [-1.0, 0.0, 0.0],
-                [-1.0, 0.0, 0.0],
-                [1.0, 0.0, 0.0],
-                [0.0, 1.0, 0.0],
-                [0.0, -1.0, 0.0],
-                [0.0, -1.0, 0.0],
-                [0.0, 1.0, 0.0],
-                [0.0, 0.0, 1.0],
-                [0.0, 0.0, -1.0],
-                [0.0, 0.0, -1.0],
-                [0.0, 0.0, 1.0],
+            .positions_morph(&[
+                [[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]],
+                [[-1.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+                [[0.0, 1.0, 0.0], [0.0, -1.0, 0.0]],
+                [[0.0, -1.0, 0.0], [0.0, 1.0, 0.0]],
+                [[0.0, 0.0, 1.0], [0.0, 0.0, -1.0]],
+                [[0.0, 0.0, -1.0], [0.0, 0.0, 1.0]],
             ])?
             .advance(6)?
             .tell() as i32;
