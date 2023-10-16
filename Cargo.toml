@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 psp = "0.3.6"
+bytemuck = { version = "1.14.0", features = ["must_cast"] }
 uninit = { version = "0.5.1", default-features = false }
 
 [profile.release]
