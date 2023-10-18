@@ -44,11 +44,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "game-psp"
+name = "game"
 version = "0.1.0"
 dependencies = [
- "bytemuck",
  "psp",
+ "psp_mesh_writer",
  "uninit",
 ]
 
@@ -105,6 +105,13 @@ dependencies = [
  "num_enum_derive",
  "paste",
  "unstringify",
+]
+
+[[package]]
+name = "psp_mesh_writer"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
 ]
 
 [[package]]

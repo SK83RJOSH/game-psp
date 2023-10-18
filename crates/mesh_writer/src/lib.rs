@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+#![no_std]
 
 use core::{mem::size_of, slice};
 
@@ -231,21 +231,21 @@ pub struct MeshDescription {
 }
 
 impl MeshDescription {
-    pub fn vertex_type(&self) -> psp::sys::VertexType {
+    pub fn flags(&self) -> u32 {
         let (tf, nf, pf, wf, idf, wc, mc) = (
-            self.texcoord_format as i32,
-            (self.normal_format as i32) << 2,
-            (self.position_format as i32 + 1) << 7,
-            (self.weight_format as i32) << 9,
-            (self.index_format as i32) << 11,
-            (self.weight_count.0 as i32 - 1) << 14,
-            (self.morph_count.0 as i32 - 1) << 18,
+            self.texcoord_format as u32,
+            (self.normal_format as u32) << 2,
+            (self.position_format as u32 + 1) << 7,
+            (self.weight_format as u32) << 9,
+            (self.index_format as u32) << 11,
+            (self.weight_count.0 as u32 - 1) << 14,
+            (self.morph_count.0 as u32 - 1) << 18,
         );
         let cf = match self.color_format {
             ColorFormat::None => 0,
-            _ => (self.color_format as i32 + 3) << 2,
+            _ => (self.color_format as u32 + 3) << 2,
         };
-        psp::sys::VertexType::from_bits_truncate(tf | cf | nf | pf | wf | idf | wc | mc)
+        tf | cf | nf | pf | wf | idf | wc | mc
     }
 
     pub fn index_format(&self) -> IndexFormat {

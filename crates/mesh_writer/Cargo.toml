@@ -1,0 +1,7 @@
+[package]
+name = "psp_mesh_writer"
+version = { workspace = true }
+edition = { workspace = true }
+
+[dependencies]
+bytemuck = { workspace = true }

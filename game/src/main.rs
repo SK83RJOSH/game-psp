@@ -1,21 +1,19 @@
 #![no_std]
 #![no_main]
 
+use core::mem::MaybeUninit;
+use psp::sys::*;
+use psp_mesh_writer::*;
+use uninit::uninit_array;
+
 mod display;
 use display::*;
 
 mod mem;
 use mem::*;
 
-mod model;
-use model::*;
-
 mod timer;
 use timer::*;
-
-use core::mem::MaybeUninit;
-use psp::sys::*;
-use uninit::uninit_array;
 
 psp::module!("game", 1, 1);
 
@@ -44,7 +42,7 @@ impl Gizmo {
             .color_format(ColorFormat::R8G8B8A8)
             .morph_count(COUNT_2)
             .build();
-        let vertex_type = mesh_description.clone().vertex_type();
+        let vertex_type = VertexType::from_bits_truncate(mesh_description.clone().flags() as i32);
         let mut vertex_buffer = Align16([0u8; 0xFFF]);
         let vertex_count = MeshWriter::new(mesh_description, &mut vertex_buffer.0)
             .colors_morph(&[

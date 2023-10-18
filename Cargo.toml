@@ -1,9 +1,13 @@
-[package]
-name = "game-psp"
+[workspace]
+default-members = ["game"]
+members = ["crates/*", "game"]
+resolver = "2"
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
 
-[dependencies]
+[workspace.dependencies]
 psp = "0.3.6"
 bytemuck = { version = "1.14.0", features = ["must_cast"] }
 uninit = { version = "0.5.1", default-features = false }
