@@ -34,19 +34,19 @@ impl Default for GraphicsBuffer {
 struct Gizmo {
     vertex_type: VertexType,
     vertex_count: i32,
-    vertex_buffer: Align16<[u8; 0xbf4]>,
+    vertex_buffer: Align16<[u8; 0xFFF]>,
     morph_weight: f32,
 }
 
 impl Gizmo {
     fn new() -> Result<Self, MeshWriterError> {
-        let vertex_description = VertexDescriptionBuilder::new(PositionFormat::F32)
+        let mesh_description = MeshDescriptionBuilder::new(PositionFormat::F32)
             .color_format(ColorFormat::R8G8B8A8)
             .morph_count(COUNT_2)
             .build();
-        let vertex_type = vertex_description.clone().vertex_type();
-        let mut vertex_buffer = Align16([0u8; 0xbf4]);
-        let vertex_count = MeshWriter::new(vertex_description, &mut vertex_buffer.0)
+        let vertex_type = mesh_description.clone().vertex_type();
+        let mut vertex_buffer = Align16([0u8; 0xFFF]);
+        let vertex_count = MeshWriter::new(mesh_description, &mut vertex_buffer.0)
             .colors_morph(&[
                 [0xff0000ff_u32, 0xffffff00_u32],
                 [0xff0000ff_u32, 0xffffff00_u32],
@@ -63,8 +63,8 @@ impl Gizmo {
                 [[0.0, 0.0, 1.0], [0.0, 0.0, -1.0]],
                 [[0.0, 0.0, -1.0], [0.0, 0.0, 1.0]],
             ])?
-            .advance(6)?
-            .tell() as i32;
+            .advance_vertex(6)?
+            .tell_vertex() as i32;
 
         Ok(Self {
             vertex_type,

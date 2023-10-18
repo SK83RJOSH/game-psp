@@ -4,6 +4,36 @@ use core::{mem::size_of, slice};
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq)]
+pub enum IndexFormat {
+    None,
+    U8,
+    U16,
+}
+
+impl IndexFormat {
+    pub fn stride(&self) -> usize {
+        match *self {
+            IndexFormat::None => 0,
+            IndexFormat::U8 => size_of::<u8>(),
+            IndexFormat::U16 => size_of::<u16>(),
+        }
+    }
+}
+
+pub trait Index {
+    const FORMAT: IndexFormat;
+}
+
+impl Index for u8 {
+    const FORMAT: IndexFormat = IndexFormat::U8;
+}
+
+impl Index for u16 {
+    const FORMAT: IndexFormat = IndexFormat::U16;
+}
+
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum WeightFormat {
     None,
     U8,
@@ -184,7 +214,8 @@ pub const COUNT_7: Count = Count(7);
 pub const COUNT_8: Count = Count(8);
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct VertexDescription {
+pub struct MeshDescription {
+    index_format: IndexFormat,
     weight_format: WeightFormat,
     texcoord_format: TexcoordFormat,
     color_format: ColorFormat,
@@ -199,13 +230,14 @@ pub struct VertexDescription {
     stride: usize,
 }
 
-impl VertexDescription {
+impl MeshDescription {
     pub fn vertex_type(&self) -> psp::sys::VertexType {
-        let (tf, nf, pf, wf, wc, mc) = (
+        let (tf, nf, pf, wf, idf, wc, mc) = (
             self.texcoord_format as i32,
             (self.normal_format as i32) << 2,
             (self.position_format as i32 + 1) << 7,
             (self.weight_format as i32) << 9,
+            (self.index_format as i32) << 11,
             (self.weight_count.0 as i32 - 1) << 14,
             (self.morph_count.0 as i32 - 1) << 18,
         );
@@ -213,7 +245,11 @@ impl VertexDescription {
             ColorFormat::None => 0,
             _ => (self.color_format as i32 + 3) << 2,
         };
-        psp::sys::VertexType::from_bits_truncate(tf | cf | nf | pf | wf | wc | mc)
+        psp::sys::VertexType::from_bits_truncate(tf | cf | nf | pf | wf | idf | wc | mc)
+    }
+
+    pub fn index_format(&self) -> IndexFormat {
+        self.index_format
     }
 
     pub fn weight_format(&self) -> WeightFormat {
@@ -277,7 +313,8 @@ impl VertexDescription {
     }
 }
 
-pub struct VertexDescriptionBuilder {
+pub struct MeshDescriptionBuilder {
+    index_format: IndexFormat,
     weight_format: WeightFormat,
     weight_count: Count,
     texcoord_format: TexcoordFormat,
@@ -287,9 +324,10 @@ pub struct VertexDescriptionBuilder {
     morph_count: Count,
 }
 
-impl VertexDescriptionBuilder {
+impl MeshDescriptionBuilder {
     pub fn new(position_format: PositionFormat) -> Self {
         Self {
+            index_format: IndexFormat::None,
             weight_format: WeightFormat::None,
             weight_count: COUNT_1,
             texcoord_format: TexcoordFormat::None,
@@ -298,6 +336,11 @@ impl VertexDescriptionBuilder {
             position_format,
             morph_count: COUNT_1,
         }
+    }
+
+    pub fn index_format(&mut self, index_format: IndexFormat) -> &mut Self {
+        self.index_format = index_format;
+        self
     }
 
     pub fn weight_format(&mut self, weight_format: WeightFormat) -> &mut Self {
@@ -341,14 +384,15 @@ impl VertexDescriptionBuilder {
         self
     }
 
-    pub fn build(&self) -> VertexDescription {
+    pub fn build(&self) -> MeshDescription {
         let weight_count = self.weight_count.0;
         let texcoord_offset = self.weight_format.stride() * weight_count;
         let color_offset = texcoord_offset + self.texcoord_format.stride();
         let normal_offset = color_offset + self.color_format.stride();
         let position_offset = normal_offset + self.normal_format.stride();
         let stride = position_offset + self.position_format.stride();
-        VertexDescription {
+        MeshDescription {
+            index_format: self.index_format,
             weight_format: self.weight_format,
             texcoord_format: self.texcoord_format,
             color_format: self.color_format,
@@ -368,7 +412,11 @@ impl VertexDescriptionBuilder {
 #[derive(Debug)]
 pub enum MeshWriterError {
     AtMaxVertexCount,
-    OutOfMemory { capacity: usize, requested: usize },
+    AtMaxIndexCount,
+    OutOfVertexMemory { capacity: usize, requested: usize },
+    OutOfIndexMemory { capacity: usize, requested: usize },
+    IndexOutOfRange { vertex_count: u16, index_value: u16 },
+    IndexFormat { expected: IndexFormat },
     WeightFormat { expected: WeightFormat },
     TexcoordFormat { expected: TexcoordFormat },
     ColorFormat { expected: ColorFormat },
@@ -379,32 +427,49 @@ pub enum MeshWriterError {
 }
 
 pub struct MeshWriter<'a> {
-    vertex_description: VertexDescription,
+    mesh_description: MeshDescription,
     vertex_buffer: &'a mut [u8],
     vertex_count: u16,
+    index_buffer: Option<&'a mut [u8]>,
+    index_count: u16,
 }
 
 type MeshBuilderResult<T, E = MeshWriterError> = Result<T, E>;
 
 impl<'a> MeshWriter<'a> {
-    pub fn new(vertex_description: VertexDescription, vertex_buffer: &'a mut [u8]) -> Self {
+    pub fn new(mesh_description: MeshDescription, vertex_buffer: &'a mut [u8]) -> Self {
         Self {
-            vertex_description,
+            mesh_description,
             vertex_buffer,
             vertex_count: 0,
+            index_buffer: None,
+            index_count: 0,
         }
     }
 
-    pub fn check_capacity(&mut self, count: usize) -> MeshBuilderResult<&mut Self> {
-        if count > (u16::MAX - self.vertex_count) as usize {
-            return Err(MeshWriterError::AtMaxVertexCount);
+    pub fn new_indexed(
+        mesh_description: MeshDescription,
+        vertex_buffer: &'a mut [u8],
+        index_buffer: &'a mut [u8],
+    ) -> Self {
+        Self {
+            mesh_description,
+            vertex_buffer,
+            vertex_count: 0,
+            index_buffer: Some(index_buffer),
+            index_count: 0,
         }
-        let capacity = self.vertex_buffer.len();
-        let requested = self.vertex_description.stride()
-            * self.vertex_description.morph_count.0
-            * (self.vertex_count as usize + count);
+    }
+
+    pub fn check_index_capacity(&mut self, count: usize) -> MeshBuilderResult<&mut Self> {
+        if count > (u16::MAX - self.index_count) as usize {
+            return Err(MeshWriterError::AtMaxIndexCount);
+        }
+        let requested =
+            self.mesh_description.index_format.stride() * (self.index_count as usize + count);
+        let capacity = self.index_buffer.as_ref().map_or(0, |b| b.len());
         if requested > capacity {
-            return Err(MeshWriterError::OutOfMemory {
+            return Err(MeshWriterError::OutOfIndexMemory {
                 capacity,
                 requested,
             });
@@ -412,31 +477,93 @@ impl<'a> MeshWriter<'a> {
         Ok(self)
     }
 
-    pub fn advance(&mut self, count: usize) -> MeshBuilderResult<&mut Self> {
-        self.check_capacity(count)?;
+    pub fn tell_index(&self) -> u16 {
+        self.index_count
+    }
+
+    pub fn indices<T: Index + bytemuck::Pod + Into<u16>>(
+        &mut self,
+        indices: &[T],
+    ) -> MeshBuilderResult<&mut Self> {
+        if T::FORMAT != self.mesh_description.index_format {
+            return Err(MeshWriterError::IndexFormat {
+                expected: self.mesh_description.index_format,
+            });
+        }
+        let count = indices.len();
+        self.check_index_capacity(count)?;
+        if let Some(&i) = indices.iter().find(|&&i| i.into() >= self.vertex_count) {
+            return Err(MeshWriterError::IndexOutOfRange {
+                vertex_count: self.vertex_count,
+                index_value: i.into(),
+            });
+        }
+        let source_buffer: &[u8] = bytemuck::must_cast_slice(indices);
+        let index_buffer = self.index_buffer.as_mut().unwrap();
+        for i in 0..count {
+            let stride = self.mesh_description.index_format.stride();
+            let offset = ((self.index_count as usize) + i) * stride;
+            unsafe {
+                core::ptr::copy_nonoverlapping(
+                    source_buffer.as_ptr().add(i * stride),
+                    index_buffer.as_mut_ptr().add(offset),
+                    stride,
+                );
+            }
+        }
+        self.index_count += count as u16;
+        Ok(self)
+    }
+
+    pub fn index<T: Index + bytemuck::Pod + Into<u16>>(
+        &mut self,
+        index: T,
+    ) -> MeshBuilderResult<&mut Self> {
+        self.indices(&[index])
+    }
+
+    pub fn check_vertex_capacity(&mut self, count: usize) -> MeshBuilderResult<&mut Self> {
+        if count > (u16::MAX - self.vertex_count) as usize {
+            return Err(MeshWriterError::AtMaxVertexCount);
+        }
+        let capacity = self.vertex_buffer.len();
+        let requested = self.mesh_description.stride()
+            * self.mesh_description.morph_count.0
+            * (self.vertex_count as usize + count);
+        if requested > capacity {
+            return Err(MeshWriterError::OutOfVertexMemory {
+                capacity,
+                requested,
+            });
+        }
+        Ok(self)
+    }
+
+    pub fn advance_vertex(&mut self, count: usize) -> MeshBuilderResult<&mut Self> {
+        self.check_vertex_capacity(count)?;
         self.vertex_count += count as u16;
         Ok(self)
     }
 
-    pub fn tell(&self) -> u16 {
+    pub fn tell_vertex(&self) -> u16 {
         self.vertex_count
     }
 
-    unsafe fn write<T, const MC: usize>(
+    unsafe fn write_vertex<T, const MC: usize>(
         &mut self,
         src: *const T,
         offset: usize,
         stride: usize,
         count: usize,
     ) -> MeshBuilderResult<&mut Self> {
-        if MC != self.vertex_description.morph_count.0 || (count % MC) != 0 {
+        if MC != self.mesh_description.morph_count.0 || (count % MC) != 0 {
             return Err(MeshWriterError::MorphCount {
-                expected: self.vertex_description.morph_count.0,
+                expected: self.mesh_description.morph_count.0,
             });
         }
-        self.check_capacity(count / MC)?;
+        self.check_vertex_capacity(count / MC)?;
         for i in 0..count {
-            let desc = &self.vertex_description;
+            let desc = &self.mesh_description;
             let offset =
                 (((self.vertex_count as usize * desc.morph_count.0) + i) * desc.stride) + offset;
             core::ptr::copy_nonoverlapping(
@@ -452,18 +579,18 @@ impl<'a> MeshWriter<'a> {
         &mut self,
         weights: &[T],
     ) -> MeshBuilderResult<&mut Self> {
-        if self.vertex_description.weight_format != T::FORMAT {
+        if self.mesh_description.weight_format != T::FORMAT {
             return Err(MeshWriterError::WeightFormat {
-                expected: self.vertex_description.weight_format,
+                expected: self.mesh_description.weight_format,
             });
         }
-        if WC != self.vertex_description.weight_count.0 {
+        if WC != self.mesh_description.weight_count.0 {
             return Err(MeshWriterError::WeightCount {
-                expected: self.vertex_description.weight_count.0,
+                expected: self.mesh_description.weight_count.0,
             });
         }
         unsafe {
-            self.write::<T, MC>(
+            self.write_vertex::<T, MC>(
                 weights.as_ptr(),
                 0,
                 T::FORMAT.stride() * WC,
@@ -544,15 +671,15 @@ impl<'a> MeshWriter<'a> {
         &mut self,
         texcoords: &[T],
     ) -> MeshBuilderResult<&mut Self> {
-        if self.vertex_description.texcoord_format != T::FORMAT {
+        if self.mesh_description.texcoord_format != T::FORMAT {
             return Err(MeshWriterError::TexcoordFormat {
-                expected: self.vertex_description.texcoord_format,
+                expected: self.mesh_description.texcoord_format,
             });
         }
         unsafe {
-            self.write::<T, MC>(
+            self.write_vertex::<T, MC>(
                 texcoords.as_ptr(),
-                self.vertex_description.texcoord_offset,
+                self.mesh_description.texcoord_offset,
                 T::FORMAT.stride(),
                 texcoords.len(),
             )
@@ -591,15 +718,15 @@ impl<'a> MeshWriter<'a> {
         &mut self,
         colors: &[T],
     ) -> MeshBuilderResult<&mut Self> {
-        if self.vertex_description.color_format.stride() != size_of::<T>() {
+        if self.mesh_description.color_format.stride() != size_of::<T>() {
             return Err(MeshWriterError::ColorFormat {
-                expected: self.vertex_description.color_format,
+                expected: self.mesh_description.color_format,
             });
         }
         unsafe {
-            self.write::<T, MC>(
+            self.write_vertex::<T, MC>(
                 colors.as_ptr(),
-                self.vertex_description.color_offset,
+                self.mesh_description.color_offset,
                 size_of::<T>(),
                 colors.len(),
             )
@@ -638,15 +765,15 @@ impl<'a> MeshWriter<'a> {
         &mut self,
         normals: &[T],
     ) -> MeshBuilderResult<&mut Self> {
-        if self.vertex_description.normal_format != T::FORMAT {
+        if self.mesh_description.normal_format != T::FORMAT {
             return Err(MeshWriterError::NormalFormat {
-                expected: self.vertex_description.normal_format,
+                expected: self.mesh_description.normal_format,
             });
         }
         unsafe {
-            self.write::<T, MC>(
+            self.write_vertex::<T, MC>(
                 normals.as_ptr(),
-                self.vertex_description.normal_offset,
+                self.mesh_description.normal_offset,
                 T::FORMAT.stride(),
                 normals.len(),
             )
@@ -685,15 +812,15 @@ impl<'a> MeshWriter<'a> {
         &mut self,
         positions: &[T],
     ) -> MeshBuilderResult<&mut Self> {
-        if self.vertex_description.position_format != T::FORMAT {
+        if self.mesh_description.position_format != T::FORMAT {
             return Err(MeshWriterError::PositionFormat {
-                expected: self.vertex_description.position_format,
+                expected: self.mesh_description.position_format,
             });
         }
         unsafe {
-            self.write::<T, MC>(
+            self.write_vertex::<T, MC>(
                 positions.as_ptr(),
-                self.vertex_description.position_offset,
+                self.mesh_description.position_offset,
                 T::FORMAT.stride(),
                 positions.len(),
             )
