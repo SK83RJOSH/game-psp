@@ -234,7 +234,7 @@ impl MeshDescription {
     pub fn flags(&self) -> u32 {
         let (tf, nf, pf, wf, idf, wc, mc) = (
             self.texcoord_format as u32,
-            (self.normal_format as u32) << 2,
+            (self.normal_format as u32) << 5,
             (self.position_format as u32 + 1) << 7,
             (self.weight_format as u32) << 9,
             (self.index_format as u32) << 11,
@@ -250,6 +250,14 @@ impl MeshDescription {
 
     pub fn index_format(&self) -> IndexFormat {
         self.index_format
+    }
+
+    pub fn index_stride(&self) -> usize {
+        self.index_format.stride()
+    }
+
+    pub fn index_buffer_size(&self, count: usize) -> usize {
+        self.index_format.stride() * count
     }
 
     pub fn weight_format(&self) -> WeightFormat {
@@ -308,8 +316,12 @@ impl MeshDescription {
         self.position_offset
     }
 
-    pub fn stride(&self) -> usize {
+    pub fn vertex_stride(&self) -> usize {
         self.stride
+    }
+
+    pub fn vertex_buffer_size(&self, count: usize) -> usize {
+        self.stride * self.morph_count.0 * count
     }
 }
 
@@ -527,7 +539,7 @@ impl<'a> MeshWriter<'a> {
             return Err(MeshWriterError::AtMaxVertexCount);
         }
         let capacity = self.vertex_buffer.len();
-        let requested = self.mesh_description.stride()
+        let requested = self.mesh_description.vertex_stride()
             * self.mesh_description.morph_count.0
             * (self.vertex_count as usize + count);
         if requested > capacity {
