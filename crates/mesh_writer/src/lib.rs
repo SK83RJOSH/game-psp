@@ -800,14 +800,14 @@ impl<'a> MeshWriter<'a> {
         self.normals(slice::from_ref(normal))
     }
 
-    pub fn normals_morph<T: Normal + bytemuck::Pod, const N: usize>(
+    pub fn normals_morph<T: Normal + bytemuck::Pod, const MC: usize>(
         &mut self,
-        normals: &[[T; N]],
+        normals: &[[T; MC]],
     ) -> MeshBuilderResult<&mut Self>
     where
-        [T; N]: bytemuck::Pod,
+        [T; MC]: bytemuck::Pod,
     {
-        self.normals::<T>(bytemuck::must_cast_slice(normals))
+        self.write_normals::<T, MC>(bytemuck::must_cast_slice(normals))
     }
 
     pub fn normal_morph<T: Normal + bytemuck::Pod, const N: usize>(
