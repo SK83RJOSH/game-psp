@@ -1,6 +1,9 @@
 #![no_std]
 #![no_main]
 
+extern crate alloc;
+use alloc::vec::Vec;
+
 use core::mem::MaybeUninit;
 use psp::sys::*;
 use psp_mesh_writer::*;
@@ -11,6 +14,9 @@ use display::*;
 
 mod mem;
 use mem::*;
+
+mod model;
+use model::*;
 
 mod timer;
 use timer::*;
@@ -110,22 +116,36 @@ impl Gizmo {
 }
 
 struct World {
+    models: Vec<Model>,
     gizmo: Option<Gizmo>,
     timer: Timer,
 }
 
 impl World {
     fn new() -> Self {
+        let model = {
+            let bytes = include_bytes!("../res/BoxVertexColors.psp");
+            let file: psp_file_formats::model::File = postcard::from_bytes(bytes).unwrap();
+            let mut model = Model::from(file);
+            model.rotation = [15.0, 25.0, 0.0];
+            model.position = [1.0, 1.0, -5.0];
+            model
+        };
+
         Self {
+            models: alloc::vec![model],
             gizmo: Gizmo::new().ok(),
             timer: Timer::new(),
         }
     }
 
     fn draw(&mut self) {
+        for model in &self.models {
+            model.draw();
+        }
         let delta = self.timer.delta_f32();
         if let Some(gizmo) = &mut self.gizmo {
-            gizmo.draw(delta)
+            gizmo.draw(delta);
         }
         self.timer.step()
     }
@@ -208,7 +228,7 @@ fn init_graphics(buffer: &mut GraphicsBuffer) {
             StencilOperation::Incr,
         );
 
-        sceGuFrontFace(FrontFaceDirection::Clockwise);
+        sceGuFrontFace(FrontFaceDirection::CounterClockwise);
         sceGuEnable(GuState::CullFace);
 
         sceGuAlphaFunc(AlphaFunc::Greater, 0x00, 0xff);

@@ -4,7 +4,12 @@ version = { workspace = true }
 edition = { workspace = true }
 
 [dependencies]
+psp = { workspace = true }
+
+psp_file_formats = { path = "../crates/file_formats" }
 psp_mesh_writer = { path = "../crates/mesh_writer" }
 
-psp = { workspace = true }
+aligned-vec = { workspace = true }
+bytemuck = { workspace = true }
+postcard = { workspace = true }
 uninit = { workspace = true }
