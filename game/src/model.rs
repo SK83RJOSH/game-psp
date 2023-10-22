@@ -6,6 +6,7 @@ pub struct Model {
     meshes: Vec<Mesh>,
     pub position: [f32; 3],
     pub rotation: [f32; 3],
+    pub scale: [f32; 3],
 }
 
 impl Model {
@@ -22,6 +23,11 @@ impl Model {
                 y: self.rotation[1],
                 z: self.rotation[2],
             });
+            sceGumScale(&ScePspFVector3 {
+                x: self.scale[0],
+                y: self.scale[1],
+                z: self.scale[2],
+            });
         }
 
         for mesh in &self.meshes {
@@ -36,6 +42,7 @@ impl From<psp_file_formats::model::File> for Model {
             meshes: value.meshes.into_iter().map(Mesh::from).collect(),
             position: [0.0, 0.0, 0.0],
             rotation: [0.0, 0.0, 0.0],
+            scale: [1.0, 1.0, 1.0],
         }
     }
 }
@@ -57,6 +64,7 @@ impl Mesh {
         };
 
         unsafe {
+            sceGuMaterial(LightComponent::AMBIENT, 0xffffffff);
             sceGumDrawArray(
                 self.primitive_type,
                 self.vertex_type,
