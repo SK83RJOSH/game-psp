@@ -1,0 +1,8 @@
+[package]
+name = "psp_file_formats"
+version = { workspace = true }
+edition = { workspace = true }
+
+[dependencies]
+postcard = { workspace = true }
+serde = { workspace = true }

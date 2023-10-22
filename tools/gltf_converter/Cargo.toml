@@ -1,0 +1,15 @@
+[package]
+name = "gltf_converter"
+version = { workspace = true }
+edition = { workspace = true }
+
+[dependencies]
+psp_file_formats = { path = "../../crates/file_formats" }
+psp_mesh_writer = { path = "../../crates/mesh_writer" }
+
+postcard = { workspace = true }
+thiserror = { workspace = true }
+
+clap = { version = "4.4.6", features = ["derive"] }
+gltf = "1.3.0"
+percent-encoding = "2.3.0"
