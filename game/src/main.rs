@@ -128,7 +128,7 @@ impl World {
             let bytes = include_bytes!("../res/BoxVertexColors.psp");
             let file: psp_file_formats::model::File = postcard::from_bytes(bytes).unwrap();
             let mut model = Model::from(file);
-            model.rotation = [15.0, 25.0, 0.0];
+            model.rotation = [45_f32.to_radians(), 45_f32.to_radians(), 0.0];
             model.position = [1.0, 1.0, -5.0];
             model
         };
