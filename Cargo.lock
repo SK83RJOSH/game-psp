@@ -13,6 +13,9 @@ name = "aligned-vec"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4aa90d7ce82d4be67b64039a3d588d38dbcc6736577de4a847025ce5b0c468d1"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "anstream"
@@ -289,6 +292,7 @@ dependencies = [
 name = "gltf_converter"
 version = "0.1.0"
 dependencies = [
+ "aligned-vec",
  "clap",
  "gltf",
  "percent-encoding",
@@ -506,6 +510,7 @@ dependencies = [
 name = "psp_file_formats"
 version = "0.1.0"
 dependencies = [
+ "aligned-vec",
  "postcard",
  "serde",
 ]

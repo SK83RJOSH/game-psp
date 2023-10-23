@@ -4,5 +4,6 @@ version = { workspace = true }
 edition = { workspace = true }
 
 [dependencies]
+aligned-vec = { workspace = true }
 postcard = { workspace = true }
 serde = { workspace = true }

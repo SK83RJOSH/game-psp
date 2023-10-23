@@ -10,7 +10,7 @@ edition = "2021"
 [workspace.dependencies]
 psp = "0.3.6"
 
-aligned-vec = { version = "0.5.0", default-features = false }
+aligned-vec = { version = "0.5.0", default-features = false, features = ["serde"] }
 bytemuck = { version = "1.14.0", features = ["must_cast"] }
 postcard = { version = "1.0.8", features = ["alloc"] }
 serde = { version = "1.0.189", default-features = false }

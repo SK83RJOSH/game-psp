@@ -1,4 +1,4 @@
-use aligned_vec::AVec;
+use aligned_vec::{AVec, ConstAlign};
 use alloc::vec::Vec;
 use psp::sys::*;
 
@@ -51,8 +51,8 @@ struct Mesh {
     primitive_type: GuPrimitive,
     vertex_type: VertexType,
     vertex_count: i32,
-    index_buffer: AVec<u8>,
-    vertex_buffer: AVec<u8>,
+    index_buffer: AVec<u8, ConstAlign<16>>,
+    vertex_buffer: AVec<u8, ConstAlign<16>>,
 }
 
 impl Mesh {
@@ -92,8 +92,8 @@ impl From<psp_file_formats::model::Mesh> for Mesh {
             primitive_type,
             vertex_type,
             vertex_count: value.vertex_count as _,
-            index_buffer: AVec::from_slice(16, &value.index_buffer),
-            vertex_buffer: AVec::from_slice(16, &value.vertex_buffer),
+            index_buffer: value.index_buffer,
+            vertex_buffer: value.vertex_buffer,
         }
     }
 }

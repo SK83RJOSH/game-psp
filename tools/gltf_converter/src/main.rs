@@ -4,6 +4,7 @@ use std::{
     path::PathBuf,
 };
 
+use aligned_vec::AVec;
 use clap::Parser;
 use gltf::{accessor, Semantic};
 use thiserror::Error;
@@ -130,7 +131,7 @@ fn main() -> Result<()> {
             if let Some(colors) = reader.read_colors(0) {
                 let colors: Vec<u32> = colors
                     .into_rgba_u8()
-                    .map(|c| u32::from_ne_bytes(c).swap_bytes())
+                    .map(u32::from_ne_bytes)
                     .collect();
                 writer.colors(&colors)?;
             }
@@ -172,8 +173,8 @@ fn main() -> Result<()> {
                 } else {
                     vertex_count as u32
                 },
-                index_buffer,
-                vertex_buffer,
+                index_buffer: AVec::from_slice(16, &index_buffer),
+                vertex_buffer: AVec::from_slice(16, &vertex_buffer),
             });
         }
     }
