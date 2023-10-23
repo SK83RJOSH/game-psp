@@ -46,7 +46,7 @@ struct Gizmo {
 impl Gizmo {
     fn new() -> Result<Self, psp_mesh_writer::Error> {
         let mesh_description = MeshDescriptionBuilder::new(PositionFormat::F32)
-            .color_format(ColorFormat::R8G8B8A8)
+            .color_format(ColorFormat::A8B8G8R8)
             .morph_count(COUNT_2)
             .build();
         let vertex_type = VertexType::from_bits_truncate(mesh_description.clone().flags() as i32);

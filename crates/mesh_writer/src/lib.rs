@@ -110,20 +110,20 @@ impl Texcoord for [f32; 2] {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ColorFormat {
     None,
-    R5G6B5A0,
-    R5G5B5A1,
-    R4G4B4A4,
-    R8G8B8A8,
+    B5G6R5,
+    A1B5G5R5,
+    A4B4G4R4,
+    A8B8G8R8,
 }
 
 impl ColorFormat {
     pub fn stride(&self) -> usize {
         match *self {
             ColorFormat::None => 0,
-            ColorFormat::R5G6B5A0 | ColorFormat::R5G5B5A1 | ColorFormat::R4G4B4A4 => {
+            ColorFormat::B5G6R5 | ColorFormat::A1B5G5R5 | ColorFormat::A4B4G4R4 => {
                 size_of::<u16>()
             }
-            ColorFormat::R8G8B8A8 => size_of::<u32>(),
+            ColorFormat::A8B8G8R8 => size_of::<u32>(),
         }
     }
 }

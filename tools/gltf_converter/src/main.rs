@@ -130,9 +130,7 @@ fn main() -> Result<()> {
             if let Some(colors) = reader.read_colors(0) {
                 let colors: Vec<u32> = colors
                     .into_rgba_u8()
-                    .map(|c| {
-                        (c[3] as u32) << 24 | (c[2] as u32) << 16 | (c[1] as u32) << 8 | c[0] as u32
-                    })
+                    .map(|c| u32::from_ne_bytes(c).swap_bytes())
                     .collect();
                 writer.colors(&colors)?;
             }
@@ -327,7 +325,7 @@ impl<'a> GltfPrimitiveAttributes<'a> {
             1 => match self.color_accessors.get(&0) {
                 Some(accessor) => match accessor.dimensions() {
                     accessor::Dimensions::Vec3 | accessor::Dimensions::Vec4 => {
-                        Ok(psp_mesh_writer::ColorFormat::R8G8B8A8)
+                        Ok(psp_mesh_writer::ColorFormat::A8B8G8R8)
                     }
                     dimensions => Err(Error::InvalidAccessor {
                         semantic: AccessorSemantic::Color,
