@@ -5,9 +5,10 @@ extern crate alloc;
 use alloc::vec::Vec;
 
 use core::mem::MaybeUninit;
-use psp::sys::*;
-use psp_mesh_writer::*;
 use uninit::uninit_array;
+
+use psp::sys::*;
+use psp_mesh_writer::prelude::*;
 
 mod display;
 use display::*;
@@ -43,7 +44,7 @@ struct Gizmo {
 }
 
 impl Gizmo {
-    fn new() -> Result<Self, MeshWriterError> {
+    fn new() -> Result<Self, psp_mesh_writer::Error> {
         let mesh_description = MeshDescriptionBuilder::new(PositionFormat::F32)
             .color_format(ColorFormat::R8G8B8A8)
             .morph_count(COUNT_2)

@@ -9,7 +9,7 @@ use gltf::{accessor, Semantic};
 use thiserror::Error;
 
 #[derive(Debug)]
-pub enum GltfAccessorSemantic {
+pub enum AccessorSemantic {
     Position,
     Normal,
     Tangent,
@@ -21,7 +21,7 @@ pub enum GltfAccessorSemantic {
 }
 
 #[derive(Error, Debug)]
-pub enum GltfAccessorError {
+pub enum AccessorError {
     #[error("missing: {index:?}")]
     Missing { index: usize },
     #[error("unsupported count: {count:?}")]
@@ -37,9 +37,15 @@ pub enum GltfAccessorError {
 }
 
 #[derive(Error, Debug)]
-pub enum GltfConversionError {
+pub enum Error {
     #[error("gltf error: {0}")]
     Gltf(#[from] gltf::Error),
+    #[error("io error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("mesh writer error: {0:?}")]
+    MeshWriter(psp_mesh_writer::Error),
+    #[error("postcard error: {0}")]
+    Postcard(#[from] postcard::Error),
     #[error("buffer missing blob: {index:?}")]
     BufferMissingBlob { index: usize },
     #[error("buffer missing blob: {index:?}")]
@@ -52,20 +58,18 @@ pub enum GltfConversionError {
     UnsupportedMorphCount { count: usize },
     #[error("invalid accessor ({semantic:?}): {error:?}")]
     InvalidAccessor {
-        semantic: GltfAccessorSemantic,
-        error: GltfAccessorError,
+        semantic: AccessorSemantic,
+        error: AccessorError,
     },
-    #[error("mesh writer error: {0:?}")]
-    MeshWriterError(psp_mesh_writer::MeshWriterError),
 }
 
-impl From<psp_mesh_writer::MeshWriterError> for GltfConversionError {
-    fn from(value: psp_mesh_writer::MeshWriterError) -> Self {
-        GltfConversionError::MeshWriterError(value)
+impl From<psp_mesh_writer::Error> for Error {
+    fn from(value: psp_mesh_writer::Error) -> Self {
+        Error::MeshWriter(value)
     }
 }
 
-type GltfConversionResult<T, E = GltfConversionError> = Result<T, E>;
+type Result<T, E = Error> = core::result::Result<T, E>;
 
 #[derive(Parser)]
 struct Args {
@@ -75,7 +79,7 @@ struct Args {
     compress: Option<bool>,
 }
 
-fn main() -> GltfConversionResult<()> {
+fn main() -> Result<()> {
     let args = Args::parse();
     let (gltf, buffers, _images) = gltf::import(args.file.clone())?;
 
@@ -179,13 +183,11 @@ fn main() -> GltfConversionResult<()> {
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .create(true)
-        .open(args.file.clone().with_extension("psp"))
-        .unwrap();
+        .open(args.file.clone().with_extension("psp"))?;
 
     let model_file = psp_file_formats::model::File { meshes };
 
-    file.write_all(&postcard::to_allocvec(&model_file).unwrap())
-        .unwrap();
+    file.write_all(&postcard::to_allocvec(&model_file)?)?;
 
     Ok(())
 }
@@ -194,7 +196,7 @@ fn primitive_label(mesh: &gltf::Mesh, primitive: &gltf::Primitive) -> String {
     format!("Mesh{}/Primitive{}", mesh.index(), primitive.index())
 }
 
-fn primitive_type(mode: gltf::mesh::Mode) -> GltfConversionResult<u8> {
+fn primitive_type(mode: gltf::mesh::Mode) -> Result<u8> {
     match mode {
         gltf::mesh::Mode::Points => Ok(0),
         gltf::mesh::Mode::Lines => Ok(1),
@@ -202,7 +204,7 @@ fn primitive_type(mode: gltf::mesh::Mode) -> GltfConversionResult<u8> {
         gltf::mesh::Mode::Triangles => Ok(3),
         gltf::mesh::Mode::TriangleStrip => Ok(4),
         gltf::mesh::Mode::TriangleFan => Ok(5),
-        _ => Err(GltfConversionError::UnsupportedPrimitive { mode }),
+        _ => Err(Error::UnsupportedPrimitive { mode }),
     }
 }
 
@@ -254,72 +256,72 @@ impl<'a> GltfPrimitiveAttributes<'a> {
         result
     }
 
-    fn index_format(&self) -> GltfConversionResult<psp_mesh_writer::IndexFormat> {
+    fn index_format(&self) -> Result<psp_mesh_writer::IndexFormat> {
         match &self.index_accessor {
             Some(accessor) => match accessor.dimensions() {
                 accessor::Dimensions::Scalar => match accessor.data_type() {
                     gltf::accessor::DataType::U8 => Ok(psp_mesh_writer::IndexFormat::U8),
                     gltf::accessor::DataType::U16 => Ok(psp_mesh_writer::IndexFormat::U16),
-                    data_type => Err(GltfConversionError::InvalidAccessor {
-                        semantic: GltfAccessorSemantic::Index,
-                        error: GltfAccessorError::UnsupportedDataType { data_type },
+                    data_type => Err(Error::InvalidAccessor {
+                        semantic: AccessorSemantic::Index,
+                        error: AccessorError::UnsupportedDataType { data_type },
                     }),
                 },
-                dimensions => Err(GltfConversionError::InvalidAccessor {
-                    semantic: GltfAccessorSemantic::Index,
-                    error: GltfAccessorError::UnsupportedDimensions { dimensions },
+                dimensions => Err(Error::InvalidAccessor {
+                    semantic: AccessorSemantic::Index,
+                    error: AccessorError::UnsupportedDimensions { dimensions },
                 }),
             },
             None => Ok(psp_mesh_writer::IndexFormat::None),
         }
     }
 
-    fn position_format(&self) -> GltfConversionResult<psp_mesh_writer::PositionFormat> {
+    fn position_format(&self) -> Result<psp_mesh_writer::PositionFormat> {
         match &self.position_accessor {
             Some(accessor) => match accessor.dimensions() {
                 accessor::Dimensions::Vec3 => match accessor.data_type() {
                     gltf::accessor::DataType::I8 => Ok(psp_mesh_writer::PositionFormat::I8),
                     gltf::accessor::DataType::I16 => Ok(psp_mesh_writer::PositionFormat::I16),
                     gltf::accessor::DataType::F32 => Ok(psp_mesh_writer::PositionFormat::F32),
-                    data_type => Err(GltfConversionError::InvalidAccessor {
-                        semantic: GltfAccessorSemantic::Position,
-                        error: GltfAccessorError::UnsupportedDataType { data_type },
+                    data_type => Err(Error::InvalidAccessor {
+                        semantic: AccessorSemantic::Position,
+                        error: AccessorError::UnsupportedDataType { data_type },
                     }),
                 },
-                dimensions => Err(GltfConversionError::InvalidAccessor {
-                    semantic: GltfAccessorSemantic::Position,
-                    error: GltfAccessorError::UnsupportedDimensions { dimensions },
+                dimensions => Err(Error::InvalidAccessor {
+                    semantic: AccessorSemantic::Position,
+                    error: AccessorError::UnsupportedDimensions { dimensions },
                 }),
             },
-            None => Err(GltfConversionError::InvalidAccessor {
-                semantic: GltfAccessorSemantic::Position,
-                error: GltfAccessorError::Missing { index: 0 },
+            None => Err(Error::InvalidAccessor {
+                semantic: AccessorSemantic::Position,
+                error: AccessorError::Missing { index: 0 },
             }),
         }
     }
 
-    fn normal_format(&self) -> GltfConversionResult<psp_mesh_writer::NormalFormat> {
+    fn normal_format(&self) -> Result<psp_mesh_writer::NormalFormat> {
         match &self.normal_accessor {
             Some(accessor) => match accessor.dimensions() {
                 accessor::Dimensions::Vec3 => match accessor.data_type() {
                     gltf::accessor::DataType::I8 => Ok(psp_mesh_writer::NormalFormat::I8),
                     gltf::accessor::DataType::I16 => Ok(psp_mesh_writer::NormalFormat::I16),
                     gltf::accessor::DataType::F32 => Ok(psp_mesh_writer::NormalFormat::F32),
-                    data_type => Err(GltfConversionError::InvalidAccessor {
-                        semantic: GltfAccessorSemantic::Normal,
-                        error: GltfAccessorError::UnsupportedDataType { data_type },
+                    data_type => Err(Error::InvalidAccessor {
+                        semantic: AccessorSemantic::Normal,
+                        error: AccessorError::UnsupportedDataType { data_type },
                     }),
                 },
-                dimensions => Err(GltfConversionError::InvalidAccessor {
-                    semantic: GltfAccessorSemantic::Normal,
-                    error: GltfAccessorError::UnsupportedDimensions { dimensions },
+                dimensions => Err(Error::InvalidAccessor {
+                    semantic: AccessorSemantic::Normal,
+                    error: AccessorError::UnsupportedDimensions { dimensions },
                 }),
             },
             None => Ok(psp_mesh_writer::NormalFormat::None),
         }
     }
 
-    fn color_format(&self) -> GltfConversionResult<psp_mesh_writer::ColorFormat> {
+    fn color_format(&self) -> Result<psp_mesh_writer::ColorFormat> {
         match self.color_accessors.len() {
             0 => Ok(psp_mesh_writer::ColorFormat::None),
             1 => match self.color_accessors.get(&0) {
@@ -327,24 +329,24 @@ impl<'a> GltfPrimitiveAttributes<'a> {
                     accessor::Dimensions::Vec3 | accessor::Dimensions::Vec4 => {
                         Ok(psp_mesh_writer::ColorFormat::R8G8B8A8)
                     }
-                    dimensions => Err(GltfConversionError::InvalidAccessor {
-                        semantic: GltfAccessorSemantic::Color,
-                        error: GltfAccessorError::UnsupportedDimensions { dimensions },
+                    dimensions => Err(Error::InvalidAccessor {
+                        semantic: AccessorSemantic::Color,
+                        error: AccessorError::UnsupportedDimensions { dimensions },
                     }),
                 },
-                None => Err(GltfConversionError::InvalidAccessor {
-                    semantic: GltfAccessorSemantic::Color,
-                    error: GltfAccessorError::Missing { index: 0 },
+                None => Err(Error::InvalidAccessor {
+                    semantic: AccessorSemantic::Color,
+                    error: AccessorError::Missing { index: 0 },
                 }),
             },
-            count => Err(GltfConversionError::InvalidAccessor {
-                semantic: GltfAccessorSemantic::Color,
-                error: GltfAccessorError::UnsupportedCount { count },
+            count => Err(Error::InvalidAccessor {
+                semantic: AccessorSemantic::Color,
+                error: AccessorError::UnsupportedCount { count },
             }),
         }
     }
 
-    fn texcoord_format(&self) -> GltfConversionResult<psp_mesh_writer::TexcoordFormat> {
+    fn texcoord_format(&self) -> Result<psp_mesh_writer::TexcoordFormat> {
         match self.texcoord_accessors.len() {
             0 => Ok(psp_mesh_writer::TexcoordFormat::None),
             1 => match self.texcoord_accessors.get(&0) {
@@ -353,29 +355,29 @@ impl<'a> GltfPrimitiveAttributes<'a> {
                         gltf::accessor::DataType::U8 => Ok(psp_mesh_writer::TexcoordFormat::U8),
                         gltf::accessor::DataType::U16 => Ok(psp_mesh_writer::TexcoordFormat::U16),
                         gltf::accessor::DataType::F32 => Ok(psp_mesh_writer::TexcoordFormat::F32),
-                        data_type => Err(GltfConversionError::InvalidAccessor {
-                            semantic: GltfAccessorSemantic::TexCoord,
-                            error: GltfAccessorError::UnsupportedDataType { data_type },
+                        data_type => Err(Error::InvalidAccessor {
+                            semantic: AccessorSemantic::TexCoord,
+                            error: AccessorError::UnsupportedDataType { data_type },
                         }),
                     },
-                    dimensions => Err(GltfConversionError::InvalidAccessor {
-                        semantic: GltfAccessorSemantic::TexCoord,
-                        error: GltfAccessorError::UnsupportedDimensions { dimensions },
+                    dimensions => Err(Error::InvalidAccessor {
+                        semantic: AccessorSemantic::TexCoord,
+                        error: AccessorError::UnsupportedDimensions { dimensions },
                     }),
                 },
-                None => Err(GltfConversionError::InvalidAccessor {
-                    semantic: GltfAccessorSemantic::TexCoord,
-                    error: GltfAccessorError::Missing { index: 0 },
+                None => Err(Error::InvalidAccessor {
+                    semantic: AccessorSemantic::TexCoord,
+                    error: AccessorError::Missing { index: 0 },
                 }),
             },
-            count => Err(GltfConversionError::InvalidAccessor {
-                semantic: GltfAccessorSemantic::TexCoord,
-                error: GltfAccessorError::UnsupportedCount { count },
+            count => Err(Error::InvalidAccessor {
+                semantic: AccessorSemantic::TexCoord,
+                error: AccessorError::UnsupportedCount { count },
             }),
         }
     }
 
-    fn weight_format(&self) -> GltfConversionResult<psp_mesh_writer::WeightFormat> {
+    fn weight_format(&self) -> Result<psp_mesh_writer::WeightFormat> {
         match self.weight_accessors.is_empty() {
             true => Ok(psp_mesh_writer::WeightFormat::None),
             false => {
@@ -391,26 +393,26 @@ impl<'a> GltfPrimitiveAttributes<'a> {
                             gltf::accessor::DataType::U8 => Ok(psp_mesh_writer::WeightFormat::U8),
                             gltf::accessor::DataType::U16 => Ok(psp_mesh_writer::WeightFormat::U16),
                             gltf::accessor::DataType::F32 => Ok(psp_mesh_writer::WeightFormat::F32),
-                            data_type => Err(GltfConversionError::InvalidAccessor {
-                                semantic: GltfAccessorSemantic::TexCoord,
-                                error: GltfAccessorError::UnsupportedDataType { data_type },
+                            data_type => Err(Error::InvalidAccessor {
+                                semantic: AccessorSemantic::TexCoord,
+                                error: AccessorError::UnsupportedDataType { data_type },
                             }),
                         },
-                        None => Err(GltfConversionError::InvalidAccessor {
-                            semantic: GltfAccessorSemantic::TexCoord,
-                            error: GltfAccessorError::Missing { index: 0 },
+                        None => Err(Error::InvalidAccessor {
+                            semantic: AccessorSemantic::TexCoord,
+                            error: AccessorError::Missing { index: 0 },
                         }),
                     },
-                    false => Err(GltfConversionError::InvalidAccessor {
-                        semantic: GltfAccessorSemantic::TexCoord,
-                        error: GltfAccessorError::MismatchedDataTypes,
+                    false => Err(Error::InvalidAccessor {
+                        semantic: AccessorSemantic::TexCoord,
+                        error: AccessorError::MismatchedDataTypes,
                     }),
                 }
             }
         }
     }
 
-    fn weight_count(&self) -> GltfConversionResult<psp_mesh_writer::Count> {
+    fn weight_count(&self) -> Result<psp_mesh_writer::Count> {
         let mut dimensions = 0;
         for accessor in self.weight_accessors.values() {
             dimensions += accessor.dimensions().multiplicity();
@@ -424,11 +426,11 @@ impl<'a> GltfPrimitiveAttributes<'a> {
             5 => Ok(psp_mesh_writer::COUNT_6),
             6 => Ok(psp_mesh_writer::COUNT_7),
             7 => Ok(psp_mesh_writer::COUNT_8),
-            count => Err(GltfConversionError::UnsupportedWeightCount { count }),
+            count => Err(Error::UnsupportedWeightCount { count }),
         }
     }
 
-    fn morph_count(&self) -> GltfConversionResult<psp_mesh_writer::Count> {
+    fn morph_count(&self) -> Result<psp_mesh_writer::Count> {
         match self.morph_targets.as_ref().map_or(0, |x| x.len()) {
             0 => Ok(psp_mesh_writer::COUNT_1),
             1 => Ok(psp_mesh_writer::COUNT_2),
@@ -438,14 +440,14 @@ impl<'a> GltfPrimitiveAttributes<'a> {
             5 => Ok(psp_mesh_writer::COUNT_6),
             6 => Ok(psp_mesh_writer::COUNT_7),
             7 => Ok(psp_mesh_writer::COUNT_8),
-            count => Err(GltfConversionError::UnsupportedMorphCount { count }),
+            count => Err(Error::UnsupportedMorphCount { count }),
         }
     }
 }
 
 fn mesh_description(
     attributes: &GltfPrimitiveAttributes,
-) -> GltfConversionResult<psp_mesh_writer::MeshDescription> {
+) -> Result<psp_mesh_writer::MeshDescription> {
     let mesh_description =
         psp_mesh_writer::MeshDescriptionBuilder::new(attributes.position_format()?)
             .index_format(attributes.index_format()?)

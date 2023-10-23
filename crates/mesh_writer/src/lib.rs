@@ -2,6 +2,8 @@
 
 use core::{mem::size_of, slice};
 
+pub mod prelude;
+
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum IndexFormat {
@@ -422,7 +424,7 @@ impl MeshDescriptionBuilder {
 }
 
 #[derive(Debug)]
-pub enum MeshWriterError {
+pub enum Error {
     AtMaxVertexCount,
     AtMaxIndexCount,
     OutOfVertexMemory { capacity: usize, requested: usize },
@@ -438,6 +440,8 @@ pub enum MeshWriterError {
     MorphCount { expected: usize },
 }
 
+type Result<T, E = Error> = core::result::Result<T, E>;
+
 pub struct MeshWriter<'a> {
     mesh_description: MeshDescription,
     vertex_buffer: &'a mut [u8],
@@ -445,8 +449,6 @@ pub struct MeshWriter<'a> {
     index_buffer: Option<&'a mut [u8]>,
     index_count: u16,
 }
-
-type MeshBuilderResult<T, E = MeshWriterError> = Result<T, E>;
 
 impl<'a> MeshWriter<'a> {
     pub fn new(mesh_description: MeshDescription, vertex_buffer: &'a mut [u8]) -> Self {
@@ -473,15 +475,15 @@ impl<'a> MeshWriter<'a> {
         }
     }
 
-    pub fn check_index_capacity(&mut self, count: usize) -> MeshBuilderResult<&mut Self> {
+    pub fn check_index_capacity(&mut self, count: usize) -> Result<&mut Self> {
         if count > (u16::MAX - self.index_count) as usize {
-            return Err(MeshWriterError::AtMaxIndexCount);
+            return Err(Error::AtMaxIndexCount);
         }
         let requested =
             self.mesh_description.index_format.stride() * (self.index_count as usize + count);
         let capacity = self.index_buffer.as_ref().map_or(0, |b| b.len());
         if requested > capacity {
-            return Err(MeshWriterError::OutOfIndexMemory {
+            return Err(Error::OutOfIndexMemory {
                 capacity,
                 requested,
             });
@@ -496,16 +498,16 @@ impl<'a> MeshWriter<'a> {
     pub fn indices<T: Index + bytemuck::Pod + Into<u16>>(
         &mut self,
         indices: &[T],
-    ) -> MeshBuilderResult<&mut Self> {
+    ) -> Result<&mut Self> {
         if T::FORMAT != self.mesh_description.index_format {
-            return Err(MeshWriterError::IndexFormat {
+            return Err(Error::IndexFormat {
                 expected: self.mesh_description.index_format,
             });
         }
         let count = indices.len();
         self.check_index_capacity(count)?;
         if let Some(&i) = indices.iter().find(|&&i| i.into() >= self.vertex_count) {
-            return Err(MeshWriterError::IndexOutOfRange {
+            return Err(Error::IndexOutOfRange {
                 vertex_count: self.vertex_count,
                 index_value: i.into(),
             });
@@ -530,20 +532,20 @@ impl<'a> MeshWriter<'a> {
     pub fn index<T: Index + bytemuck::Pod + Into<u16>>(
         &mut self,
         index: T,
-    ) -> MeshBuilderResult<&mut Self> {
+    ) -> Result<&mut Self> {
         self.indices(&[index])
     }
 
-    pub fn check_vertex_capacity(&mut self, count: usize) -> MeshBuilderResult<&mut Self> {
+    pub fn check_vertex_capacity(&mut self, count: usize) -> Result<&mut Self> {
         if count > (u16::MAX - self.vertex_count) as usize {
-            return Err(MeshWriterError::AtMaxVertexCount);
+            return Err(Error::AtMaxVertexCount);
         }
         let capacity = self.vertex_buffer.len();
         let requested = self.mesh_description.vertex_stride()
             * self.mesh_description.morph_count.0
             * (self.vertex_count as usize + count);
         if requested > capacity {
-            return Err(MeshWriterError::OutOfVertexMemory {
+            return Err(Error::OutOfVertexMemory {
                 capacity,
                 requested,
             });
@@ -551,7 +553,7 @@ impl<'a> MeshWriter<'a> {
         Ok(self)
     }
 
-    pub fn advance_vertex(&mut self, count: usize) -> MeshBuilderResult<&mut Self> {
+    pub fn advance_vertex(&mut self, count: usize) -> Result<&mut Self> {
         self.check_vertex_capacity(count)?;
         self.vertex_count += count as u16;
         Ok(self)
@@ -567,9 +569,9 @@ impl<'a> MeshWriter<'a> {
         offset: usize,
         stride: usize,
         count: usize,
-    ) -> MeshBuilderResult<&mut Self> {
+    ) -> Result<&mut Self> {
         if MC != self.mesh_description.morph_count.0 || (count % MC) != 0 {
-            return Err(MeshWriterError::MorphCount {
+            return Err(Error::MorphCount {
                 expected: self.mesh_description.morph_count.0,
             });
         }
@@ -590,14 +592,14 @@ impl<'a> MeshWriter<'a> {
     fn write_weights<T: Weight, const WC: usize, const MC: usize>(
         &mut self,
         weights: &[T],
-    ) -> MeshBuilderResult<&mut Self> {
+    ) -> Result<&mut Self> {
         if self.mesh_description.weight_format != T::FORMAT {
-            return Err(MeshWriterError::WeightFormat {
+            return Err(Error::WeightFormat {
                 expected: self.mesh_description.weight_format,
             });
         }
         if WC != self.mesh_description.weight_count.0 {
-            return Err(MeshWriterError::WeightCount {
+            return Err(Error::WeightCount {
                 expected: self.mesh_description.weight_count.0,
             });
         }
@@ -611,18 +613,18 @@ impl<'a> MeshWriter<'a> {
         }
     }
 
-    pub fn weights<T: Weight>(&mut self, weights: &[T]) -> MeshBuilderResult<&mut Self> {
+    pub fn weights<T: Weight>(&mut self, weights: &[T]) -> Result<&mut Self> {
         self.write_weights::<T, 1, 1>(weights)
     }
 
-    pub fn weight<T: Weight>(&mut self, weight: T) -> MeshBuilderResult<&mut Self> {
+    pub fn weight<T: Weight>(&mut self, weight: T) -> Result<&mut Self> {
         self.weights(&[weight])
     }
 
     pub fn weights_morph<T: Weight + bytemuck::Pod, const MC: usize>(
         &mut self,
         weights: &[[T; MC]],
-    ) -> MeshBuilderResult<&mut Self>
+    ) -> Result<&mut Self>
     where
         [T; MC]: bytemuck::Pod,
     {
@@ -632,7 +634,7 @@ impl<'a> MeshWriter<'a> {
     pub fn weight_morph<T: Weight + bytemuck::Pod, const MC: usize>(
         &mut self,
         weight: &[T; MC],
-    ) -> MeshBuilderResult<&mut Self>
+    ) -> Result<&mut Self>
     where
         [T; MC]: bytemuck::Pod,
     {
@@ -642,7 +644,7 @@ impl<'a> MeshWriter<'a> {
     pub fn weights_multi<T: Weight + bytemuck::Pod, const WC: usize>(
         &mut self,
         weights: &[[T; WC]],
-    ) -> MeshBuilderResult<&mut Self>
+    ) -> Result<&mut Self>
     where
         [T; WC]: bytemuck::Pod,
     {
@@ -652,7 +654,7 @@ impl<'a> MeshWriter<'a> {
     pub fn weight_multi<T: Weight + bytemuck::Pod, const WC: usize>(
         &mut self,
         weight: &[T; WC],
-    ) -> MeshBuilderResult<&mut Self>
+    ) -> Result<&mut Self>
     where
         [T; WC]: bytemuck::Pod,
     {
@@ -662,7 +664,7 @@ impl<'a> MeshWriter<'a> {
     pub fn weights_multi_morph<T: Weight + bytemuck::Pod, const WC: usize, const MC: usize>(
         &mut self,
         weights: &[[[T; WC]; MC]],
-    ) -> MeshBuilderResult<&mut Self>
+    ) -> Result<&mut Self>
     where
         [[T; WC]; MC]: bytemuck::Pod,
     {
@@ -672,7 +674,7 @@ impl<'a> MeshWriter<'a> {
     pub fn weight_multi_morph<T: Weight + bytemuck::Pod, const WC: usize, const MC: usize>(
         &mut self,
         weight: &[[T; WC]; MC],
-    ) -> MeshBuilderResult<&mut Self>
+    ) -> Result<&mut Self>
     where
         [[T; WC]; MC]: bytemuck::Pod,
     {
@@ -682,9 +684,9 @@ impl<'a> MeshWriter<'a> {
     fn write_texcoords<T: Texcoord, const MC: usize>(
         &mut self,
         texcoords: &[T],
-    ) -> MeshBuilderResult<&mut Self> {
+    ) -> Result<&mut Self> {
         if self.mesh_description.texcoord_format != T::FORMAT {
-            return Err(MeshWriterError::TexcoordFormat {
+            return Err(Error::TexcoordFormat {
                 expected: self.mesh_description.texcoord_format,
             });
         }
@@ -698,18 +700,18 @@ impl<'a> MeshWriter<'a> {
         }
     }
 
-    pub fn texcoords<T: Texcoord>(&mut self, texcoords: &[T]) -> MeshBuilderResult<&mut Self> {
+    pub fn texcoords<T: Texcoord>(&mut self, texcoords: &[T]) -> Result<&mut Self> {
         self.write_texcoords::<T, 1>(texcoords)
     }
 
-    pub fn texcoord<T: Texcoord>(&mut self, texcoord: &T) -> MeshBuilderResult<&mut Self> {
+    pub fn texcoord<T: Texcoord>(&mut self, texcoord: &T) -> Result<&mut Self> {
         self.texcoords(slice::from_ref(texcoord))
     }
 
     pub fn texcoords_morph<T: Texcoord + bytemuck::Pod, const MC: usize>(
         &mut self,
         texcoords: &[[T; MC]],
-    ) -> MeshBuilderResult<&mut Self>
+    ) -> Result<&mut Self>
     where
         [T; MC]: bytemuck::Pod,
     {
@@ -719,7 +721,7 @@ impl<'a> MeshWriter<'a> {
     pub fn texcoord_morph<T: Texcoord + bytemuck::Pod, const MC: usize>(
         &mut self,
         texcoord: &[T; MC],
-    ) -> MeshBuilderResult<&mut Self>
+    ) -> Result<&mut Self>
     where
         [T; MC]: bytemuck::Pod,
     {
@@ -729,9 +731,9 @@ impl<'a> MeshWriter<'a> {
     fn write_colors<T: Color, const MC: usize>(
         &mut self,
         colors: &[T],
-    ) -> MeshBuilderResult<&mut Self> {
+    ) -> Result<&mut Self> {
         if self.mesh_description.color_format.stride() != size_of::<T>() {
-            return Err(MeshWriterError::ColorFormat {
+            return Err(Error::ColorFormat {
                 expected: self.mesh_description.color_format,
             });
         }
@@ -745,18 +747,18 @@ impl<'a> MeshWriter<'a> {
         }
     }
 
-    pub fn colors<T: Color>(&mut self, colors: &[T]) -> MeshBuilderResult<&mut Self> {
+    pub fn colors<T: Color>(&mut self, colors: &[T]) -> Result<&mut Self> {
         self.write_colors::<T, 1>(colors)
     }
 
-    pub fn color<T: Color>(&mut self, color: T) -> MeshBuilderResult<&mut Self> {
+    pub fn color<T: Color>(&mut self, color: T) -> Result<&mut Self> {
         self.colors(&[color])
     }
 
     pub fn colors_morph<T: Color + bytemuck::Pod, const MC: usize>(
         &mut self,
         colors: &[[T; MC]],
-    ) -> MeshBuilderResult<&mut Self>
+    ) -> Result<&mut Self>
     where
         [T; MC]: bytemuck::Pod,
     {
@@ -766,7 +768,7 @@ impl<'a> MeshWriter<'a> {
     pub fn color_morph<T: Color + bytemuck::Pod, const N: usize>(
         &mut self,
         color: &[T; N],
-    ) -> MeshBuilderResult<&mut Self>
+    ) -> Result<&mut Self>
     where
         [T; N]: bytemuck::Pod,
     {
@@ -776,9 +778,9 @@ impl<'a> MeshWriter<'a> {
     fn write_normals<T: Normal, const MC: usize>(
         &mut self,
         normals: &[T],
-    ) -> MeshBuilderResult<&mut Self> {
+    ) -> Result<&mut Self> {
         if self.mesh_description.normal_format != T::FORMAT {
-            return Err(MeshWriterError::NormalFormat {
+            return Err(Error::NormalFormat {
                 expected: self.mesh_description.normal_format,
             });
         }
@@ -792,18 +794,18 @@ impl<'a> MeshWriter<'a> {
         }
     }
 
-    pub fn normals<T: Normal>(&mut self, normals: &[T]) -> MeshBuilderResult<&mut Self> {
+    pub fn normals<T: Normal>(&mut self, normals: &[T]) -> Result<&mut Self> {
         self.write_normals::<T, 1>(normals)
     }
 
-    pub fn normal<T: Normal>(&mut self, normal: &T) -> MeshBuilderResult<&mut Self> {
+    pub fn normal<T: Normal>(&mut self, normal: &T) -> Result<&mut Self> {
         self.normals(slice::from_ref(normal))
     }
 
     pub fn normals_morph<T: Normal + bytemuck::Pod, const MC: usize>(
         &mut self,
         normals: &[[T; MC]],
-    ) -> MeshBuilderResult<&mut Self>
+    ) -> Result<&mut Self>
     where
         [T; MC]: bytemuck::Pod,
     {
@@ -813,7 +815,7 @@ impl<'a> MeshWriter<'a> {
     pub fn normal_morph<T: Normal + bytemuck::Pod, const N: usize>(
         &mut self,
         normal: &[T; N],
-    ) -> MeshBuilderResult<&mut Self>
+    ) -> Result<&mut Self>
     where
         [T; N]: bytemuck::Pod,
     {
@@ -823,9 +825,9 @@ impl<'a> MeshWriter<'a> {
     fn write_positions<T: Position, const MC: usize>(
         &mut self,
         positions: &[T],
-    ) -> MeshBuilderResult<&mut Self> {
+    ) -> Result<&mut Self> {
         if self.mesh_description.position_format != T::FORMAT {
-            return Err(MeshWriterError::PositionFormat {
+            return Err(Error::PositionFormat {
                 expected: self.mesh_description.position_format,
             });
         }
@@ -839,18 +841,18 @@ impl<'a> MeshWriter<'a> {
         }
     }
 
-    pub fn positions<T: Position>(&mut self, positions: &[T]) -> MeshBuilderResult<&mut Self> {
+    pub fn positions<T: Position>(&mut self, positions: &[T]) -> Result<&mut Self> {
         self.write_positions::<T, 1>(positions)
     }
 
-    pub fn position<T: Position>(&mut self, position: &T) -> MeshBuilderResult<&mut Self> {
+    pub fn position<T: Position>(&mut self, position: &T) -> Result<&mut Self> {
         self.positions(slice::from_ref(position))
     }
 
     pub fn positions_morph<T: Position + bytemuck::Pod, const MC: usize>(
         &mut self,
         positions: &[[T; MC]],
-    ) -> MeshBuilderResult<&mut Self>
+    ) -> Result<&mut Self>
     where
         [T; MC]: bytemuck::Pod,
     {
@@ -860,7 +862,7 @@ impl<'a> MeshWriter<'a> {
     pub fn position_morph<T: Position + bytemuck::Pod, const N: usize>(
         &mut self,
         position: &[T; N],
-    ) -> MeshBuilderResult<&mut Self>
+    ) -> Result<&mut Self>
     where
         [T; N]: bytemuck::Pod,
     {
