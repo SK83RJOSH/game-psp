@@ -6,7 +6,7 @@ edition = { workspace = true }
 [dependencies]
 psp = { workspace = true }
 
-psp_file_formats = { path = "../crates/file_formats" }
+psp_file_formats = { path = "../crates/file_formats", features = ["psp"]}
 psp_mesh_writer = { path = "../crates/mesh_writer" }
 
 aligned-vec = { workspace = true }

@@ -120,9 +120,7 @@ impl ColorFormat {
     pub fn stride(&self) -> usize {
         match *self {
             ColorFormat::None => 0,
-            ColorFormat::B5G6R5 | ColorFormat::A1B5G5R5 | ColorFormat::A4B4G4R4 => {
-                size_of::<u16>()
-            }
+            ColorFormat::B5G6R5 | ColorFormat::A1B5G5R5 | ColorFormat::A4B4G4R4 => size_of::<u16>(),
             ColorFormat::A8B8G8R8 => size_of::<u32>(),
         }
     }
@@ -529,10 +527,7 @@ impl<'a> MeshWriter<'a> {
         Ok(self)
     }
 
-    pub fn index<T: Index + bytemuck::Pod + Into<u16>>(
-        &mut self,
-        index: T,
-    ) -> Result<&mut Self> {
+    pub fn index<T: Index + bytemuck::Pod + Into<u16>>(&mut self, index: T) -> Result<&mut Self> {
         self.indices(&[index])
     }
 
@@ -728,10 +723,7 @@ impl<'a> MeshWriter<'a> {
         self.texcoords_morph(slice::from_ref(texcoord))
     }
 
-    fn write_colors<T: Color, const MC: usize>(
-        &mut self,
-        colors: &[T],
-    ) -> Result<&mut Self> {
+    fn write_colors<T: Color, const MC: usize>(&mut self, colors: &[T]) -> Result<&mut Self> {
         if self.mesh_description.color_format.stride() != size_of::<T>() {
             return Err(Error::ColorFormat {
                 expected: self.mesh_description.color_format,
@@ -775,10 +767,7 @@ impl<'a> MeshWriter<'a> {
         self.colors_morph(slice::from_ref(color))
     }
 
-    fn write_normals<T: Normal, const MC: usize>(
-        &mut self,
-        normals: &[T],
-    ) -> Result<&mut Self> {
+    fn write_normals<T: Normal, const MC: usize>(&mut self, normals: &[T]) -> Result<&mut Self> {
         if self.mesh_description.normal_format != T::FORMAT {
             return Err(Error::NormalFormat {
                 expected: self.mesh_description.normal_format,

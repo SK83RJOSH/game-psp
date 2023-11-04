@@ -3,7 +3,12 @@ name = "psp_file_formats"
 version = { workspace = true }
 edition = { workspace = true }
 
+[features]
+psp = ["dep:psp"]
+
 [dependencies]
 aligned-vec = { workspace = true }
+bitflags = { workspace = true }
 postcard = { workspace = true }
+psp = { workspace = true, optional = true}
 serde = { workspace = true }

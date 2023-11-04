@@ -16,8 +16,8 @@ use display::*;
 mod mem;
 use mem::*;
 
-mod model;
-use model::*;
+mod model_instance;
+use model_instance::{Drawable, ModelInstance};
 
 mod timer;
 use timer::*;
@@ -117,7 +117,7 @@ impl Gizmo {
 }
 
 struct World {
-    models: Vec<Model>,
+    models: Vec<ModelInstance>,
     gizmo: Option<Gizmo>,
     timer: Timer,
 }
@@ -126,11 +126,11 @@ impl World {
     fn new() -> Self {
         let model = {
             let bytes = include_bytes!("../res/BoxVertexColors.psp");
-            let file: psp_file_formats::model::File = postcard::from_bytes(bytes).unwrap();
-            let mut model = Model::from(file);
-            model.rotation = [45_f32.to_radians(), 45_f32.to_radians(), 0.0];
-            model.position = [1.0, 1.0, -5.0];
-            model
+            let model: psp_file_formats::Model = postcard::from_bytes(bytes).unwrap();
+            let mut instance = ModelInstance::from(model);
+            instance.rotation = [45_f32.to_radians(), 45_f32.to_radians(), 0.0];
+            instance.position = [1.0, 1.0, -5.0];
+            instance
         };
 
         Self {
@@ -149,6 +149,12 @@ impl World {
             gizmo.draw(delta);
         }
         self.timer.step()
+    }
+}
+
+impl Default for World {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -222,6 +228,11 @@ fn init_graphics(buffer: &mut GraphicsBuffer) {
         sceGuDepthFunc(DepthFunc::GreaterOrEqual);
         sceGuEnable(GuState::DepthTest);
 
+        sceGuTexFilter(TextureFilter::Nearest, TextureFilter::Nearest);
+        sceGuTexFunc(TextureEffect::Modulate, TextureColorComponent::Rgba);
+        sceGuTexWrap(GuTexWrapMode::Repeat, GuTexWrapMode::Repeat);
+        sceGuEnable(GuState::Texture2D);
+
         sceGuStencilFunc(StencilFunc::Equal, 0x00, 0xff);
         sceGuStencilOp(
             StencilOperation::Keep,
@@ -248,7 +259,7 @@ fn init_graphics(buffer: &mut GraphicsBuffer) {
         sceGuShadeModel(ShadingModel::Smooth);
         sceGuEnable(GuState::Lighting);
 
-        sceGuClearColor(0x00000000);
+        sceGuClearColor(0x007ac980);
         sceGuClearDepth(0);
         sceGuClearStencil(0);
 
