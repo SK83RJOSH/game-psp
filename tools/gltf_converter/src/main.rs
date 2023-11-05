@@ -111,21 +111,6 @@ fn main() -> Result<()> {
     let args = Args::parse();
     let (gltf, buffers, images) = gltf::import(args.file.clone())?;
 
-    let mut textures = vec![];
-    for image in &images {
-        let format = image_format(image)?;
-        let (width, height) = image_dimensions(image)?;
-        let data = image_data(image)?;
-        textures.push(psp_file_formats::model::Texture {
-            format,
-            mip_levels: 0,
-            width,
-            height,
-            buffer_width: width,
-            data: AVec::from_slice(16, &data),
-        });
-    }
-
     let mut samplers = vec![];
     for sampler in gltf.samplers() {
         samplers.push(psp_file_formats::model::Sampler {
@@ -133,6 +118,19 @@ fn main() -> Result<()> {
             mag_filter: sampler_get_mag_filter(sampler.mag_filter()),
             u_wrap_mode: sampler_get_wrap_mode(sampler.wrap_s())?,
             v_wrap_mode: sampler_get_wrap_mode(sampler.wrap_t())?,
+        });
+    }
+
+    let mut textures = vec![];
+    for image in &images {
+        let (width, height) = image_dimensions(image)?;
+        textures.push(psp_file_formats::model::Texture {
+            format: image_format(image)?,
+            mip_levels: 0,
+            width,
+            height,
+            buffer_width: width,
+            data: AVec::from_slice(16, &image_data(image)?),
         });
     }
 
@@ -151,6 +149,7 @@ fn main() -> Result<()> {
     let mut meshes = vec![];
     let mut skinned_meshes = HashSet::<usize>::default();
     let mut non_skinned_meshes = HashSet::<usize>::default();
+    let mut used_materials = HashSet::<usize>::default();
     for gltf_node in gltf.nodes() {
         if let Some(gltf_mesh) = gltf_node.mesh() {
             if gltf_node.skin().is_some() {
@@ -163,6 +162,9 @@ fn main() -> Result<()> {
     for mesh in gltf.meshes() {
         for primitive in mesh.primitives() {
             let material_index = primitive_material_index(&materials, &primitive.material())?;
+            if let Some(used_material) = material_index {
+                used_materials.insert(used_material);
+            }
             let primitive_type = primitive_type(primitive.mode())?;
             let primitive_attributes = GltfPrimitiveAttributes::new(&primitive);
             let mesh_description = mesh_description(&primitive_attributes)?;
@@ -240,6 +242,35 @@ fn main() -> Result<()> {
                 index_buffer: AVec::from_slice(16, &index_buffer),
                 vertex_buffer: AVec::from_slice(16, &vertex_buffer),
             });
+        }
+    }
+
+    let material_map = remove_and_remap_values(&used_materials, &mut materials);
+    for mesh in &mut meshes {
+        if let Some(material_index) = mesh.material_index {
+            mesh.material_index = Some(material_map[material_index]);
+        }
+    }
+    
+    let mut used_samplers = HashSet::<usize>::default();
+    let mut used_textures = HashSet::<usize>::default();
+    for material in &mut materials {
+        if let Some(sampler_index) = material.sampler_index {
+            used_samplers.insert(sampler_index);
+        }
+        if let Some(texture_index) = material.texture_index {
+            used_textures.insert(texture_index);
+        }
+    }
+
+    let sampler_map = remove_and_remap_values(&used_samplers, &mut samplers);
+    let texture_map = remove_and_remap_values(&used_textures, &mut textures);
+    for material in &mut materials {
+        if let Some(sampler_index) = material.sampler_index {
+            material.sampler_index = Some(sampler_map[sampler_index]);
+        }
+        if let Some(texture_index) = material.texture_index {
+            material.texture_index = Some(texture_map[texture_index]);
         }
     }
 
@@ -339,22 +370,16 @@ fn image_data(image: &gltf::image::Data) -> Result<Vec<u8>> {
 fn sampler_get_min_filter(
     filter: Option<gltf::texture::MinFilter>,
 ) -> psp_file_formats::model::TextureFilter {
+    use gltf::texture::MinFilter;
+    use psp_file_formats::model::TextureFilter;
     match filter {
-        Some(gltf::texture::MinFilter::Linear) => psp_file_formats::model::TextureFilter::Linear,
-        Some(gltf::texture::MinFilter::LinearMipmapLinear) => {
-            psp_file_formats::model::TextureFilter::LinearMipmapLinear
-        }
-        Some(gltf::texture::MinFilter::LinearMipmapNearest) => {
-            psp_file_formats::model::TextureFilter::LinearMipmapNearest
-        }
-        Some(gltf::texture::MinFilter::Nearest) => psp_file_formats::model::TextureFilter::Nearest,
-        Some(gltf::texture::MinFilter::NearestMipmapLinear) => {
-            psp_file_formats::model::TextureFilter::NearestMipmapLinear
-        }
-        Some(gltf::texture::MinFilter::NearestMipmapNearest) => {
-            psp_file_formats::model::TextureFilter::NearestMipmapNearest
-        }
-        None => psp_file_formats::model::TextureFilter::Linear,
+        Some(MinFilter::Linear) => TextureFilter::Linear,
+        Some(MinFilter::LinearMipmapLinear) => TextureFilter::LinearMipmapLinear,
+        Some(MinFilter::LinearMipmapNearest) => TextureFilter::LinearMipmapNearest,
+        Some(MinFilter::Nearest) => TextureFilter::Nearest,
+        Some(MinFilter::NearestMipmapLinear) => TextureFilter::NearestMipmapLinear,
+        Some(MinFilter::NearestMipmapNearest) => TextureFilter::NearestMipmapNearest,
+        None => TextureFilter::Linear,
     }
 }
 
@@ -754,4 +779,23 @@ fn mesh_description(
             .morph_count(attributes.morph_count()?)
             .build();
     Ok(mesh_description)
+}
+
+fn remove_and_remap_values<T>(used: &HashSet<usize>, values: &mut Vec<T>) -> Vec<usize> {
+    let mut map = (0..values.len()).collect::<Vec<_>>();
+    if used.len() != values.len() {
+        let mut new_idx = 0;
+        let mut removed_idx = 0;
+        while new_idx < values.len() {
+            let old_idx = new_idx + removed_idx;
+            if !used.contains(&old_idx) {
+                values.remove(new_idx);
+                removed_idx += 1;
+            } else {
+                map[old_idx] = new_idx;
+                new_idx += 1;
+            }
+        }
+    }
+    map
 }
