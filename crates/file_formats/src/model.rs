@@ -57,8 +57,8 @@ pub struct Material {
     pub state_flags: GuStateFlags,
     pub alpha_cutoff: u8,
     pub diffuse_color: u32,
-    pub sampler_index: Option<usize>,
     pub texture_index: Option<usize>,
+    pub sampler_index: Option<usize>,
     pub emission_color: u32,
 }
 

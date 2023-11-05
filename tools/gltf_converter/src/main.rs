@@ -111,16 +111,6 @@ fn main() -> Result<()> {
     let args = Args::parse();
     let (gltf, buffers, images) = gltf::import(args.file.clone())?;
 
-    let mut samplers = vec![];
-    for sampler in gltf.samplers() {
-        samplers.push(psp_file_formats::model::Sampler {
-            min_filter: sampler_get_min_filter(sampler.min_filter()),
-            mag_filter: sampler_get_mag_filter(sampler.mag_filter()),
-            u_wrap_mode: sampler_get_wrap_mode(sampler.wrap_s())?,
-            v_wrap_mode: sampler_get_wrap_mode(sampler.wrap_t())?,
-        });
-    }
-
     let mut textures = vec![];
     for image in &images {
         let (width, height) = image_dimensions(image)?;
@@ -134,14 +124,24 @@ fn main() -> Result<()> {
         });
     }
 
+    let mut samplers = vec![];
+    for sampler in gltf.samplers() {
+        samplers.push(psp_file_formats::model::Sampler {
+            min_filter: sampler_get_min_filter(sampler.min_filter()),
+            mag_filter: sampler_get_mag_filter(sampler.mag_filter()),
+            u_wrap_mode: sampler_get_wrap_mode(sampler.wrap_s())?,
+            v_wrap_mode: sampler_get_wrap_mode(sampler.wrap_t())?,
+        });
+    }
+
     let mut materials = vec![];
     for material in gltf.materials() {
         materials.push(psp_file_formats::model::Material {
             state_flags: material_state_flags(&material),
             alpha_cutoff: material_alpha_cutoff(&material)?,
             diffuse_color: material_diffuse_color(&material)?,
-            sampler_index: material_sampler_index(&samplers, &material)?,
             texture_index: material_texture_index(&textures, &material)?,
+            sampler_index: material_sampler_index(&samplers, &material)?,
             emission_color: material_emission_color(&material)?,
         });
     }
@@ -252,25 +252,25 @@ fn main() -> Result<()> {
         }
     }
     
-    let mut used_samplers = HashSet::<usize>::default();
     let mut used_textures = HashSet::<usize>::default();
+    let mut used_samplers = HashSet::<usize>::default();
     for material in &mut materials {
-        if let Some(sampler_index) = material.sampler_index {
-            used_samplers.insert(sampler_index);
-        }
         if let Some(texture_index) = material.texture_index {
             used_textures.insert(texture_index);
         }
+        if let Some(sampler_index) = material.sampler_index {
+            used_samplers.insert(sampler_index);
+        }
     }
 
-    let sampler_map = remove_and_remap_values(&used_samplers, &mut samplers);
     let texture_map = remove_and_remap_values(&used_textures, &mut textures);
+    let sampler_map = remove_and_remap_values(&used_samplers, &mut samplers);
     for material in &mut materials {
-        if let Some(sampler_index) = material.sampler_index {
-            material.sampler_index = Some(sampler_map[sampler_index]);
-        }
         if let Some(texture_index) = material.texture_index {
             material.texture_index = Some(texture_map[texture_index]);
+        }
+        if let Some(sampler_index) = material.sampler_index {
+            material.sampler_index = Some(sampler_map[sampler_index]);
         }
     }
 
@@ -447,6 +447,25 @@ fn material_diffuse_color(material: &gltf::Material) -> Result<u32> {
     Ok(u32::from_ne_bytes([a, b, g, r]))
 }
 
+fn material_texture_index(
+    textures: &Vec<psp_file_formats::model::Texture>,
+    material: &gltf::Material,
+) -> Result<Option<usize>> {
+    if let Some(texture) = material.pbr_metallic_roughness().base_color_texture() {
+        let index = texture.texture().source().index();
+        if index < textures.len() {
+            Ok(Some(index))
+        } else {
+            Err(Error::InvalidIndex {
+                semantic: IndexSemantic::Texture,
+                error: IndexError::Missing { index },
+            })
+        }
+    } else {
+        Ok(None)
+    }
+}
+
 fn material_sampler_index(
     samplers: &Vec<psp_file_formats::model::Sampler>,
     material: &gltf::Material,
@@ -463,25 +482,6 @@ fn material_sampler_index(
             }
         } else {
             Ok(None)
-        }
-    } else {
-        Ok(None)
-    }
-}
-
-fn material_texture_index(
-    textures: &Vec<psp_file_formats::model::Texture>,
-    material: &gltf::Material,
-) -> Result<Option<usize>> {
-    if let Some(texture) = material.pbr_metallic_roughness().base_color_texture() {
-        let index = texture.texture().source().index();
-        if index < textures.len() {
-            Ok(Some(index))
-        } else {
-            Err(Error::InvalidIndex {
-                semantic: IndexSemantic::Texture,
-                error: IndexError::Missing { index },
-            })
         }
     } else {
         Ok(None)
