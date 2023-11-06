@@ -7,8 +7,8 @@ edition = { workspace = true }
 psp_file_formats = { path = "../../crates/file_formats" }
 psp_mesh_writer = { path = "../../crates/mesh_writer" }
 
-bytemuck = { workspace = true }
 aligned-vec = { workspace = true }
+bytemuck = { workspace = true }
 postcard = { workspace = true }
 thiserror = { workspace = true }
 
