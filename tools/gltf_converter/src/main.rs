@@ -101,10 +101,10 @@ type Result<T, E = Error> = core::result::Result<T, E>;
 
 #[derive(Parser)]
 struct Args {
-    #[arg(default_value = "C:/Users/Josh/Desktop/game-psp/target/debug/BoxVertexColors.glb")]
+    #[arg()]
     file: PathBuf,
-    #[arg(short, long)]
-    compress: Option<bool>,
+    #[arg(short, long, default_value_t = true)]
+    compress: bool,
 }
 
 fn main() -> Result<()> {
@@ -251,7 +251,7 @@ fn main() -> Result<()> {
             mesh.material_index = Some(material_map[material_index]);
         }
     }
-    
+
     let mut used_textures = HashSet::<usize>::default();
     let mut used_samplers = HashSet::<usize>::default();
     for material in &mut materials {
@@ -265,18 +265,91 @@ fn main() -> Result<()> {
 
     let texture_map = remove_and_remap_values(&used_textures, &mut textures);
     let sampler_map = remove_and_remap_values(&used_samplers, &mut samplers);
+    let mut masked_textures = HashSet::<usize>::default();
+    let mut blended_textures = HashSet::<usize>::default();
     for material in &mut materials {
+        use psp_file_formats::model::GuStateFlags;
         if let Some(texture_index) = material.texture_index {
-            material.texture_index = Some(texture_map[texture_index]);
+            let texture_index = texture_map[texture_index];
+            if material.state_flags.contains(GuStateFlags::AlphaTest) {
+                masked_textures.insert(texture_index);
+            } else if material.state_flags.contains(GuStateFlags::Blend) {
+                blended_textures.insert(texture_index);
+            }
+            material.texture_index = Some(texture_index);
         }
         if let Some(sampler_index) = material.sampler_index {
             material.sampler_index = Some(sampler_map[sampler_index]);
         }
     }
 
+    if args.compress {
+        for (texture_index, texture) in textures.iter_mut().enumerate() {
+            let (params, format) = {
+                let mut params = texpresso::Params {
+                    algorithm: texpresso::Algorithm::IterativeClusterFit,
+                    weigh_colour_by_alpha: true,
+                    ..texpresso::Params::default()
+                };
+                let blended = blended_textures.contains(&texture_index);
+                let masked = masked_textures.contains(&texture_index);
+                if blended && masked {
+                    texture.format = psp_file_formats::model::TexturePixelFormat::PsmDxt3;
+                    (params, texpresso::Format::Bc2)
+                } else if blended {
+                    texture.format = psp_file_formats::model::TexturePixelFormat::PsmDxt5;
+                    (params, texpresso::Format::Bc3)
+                } else {
+                    texture.format = psp_file_formats::model::TexturePixelFormat::PsmDxt1;
+                    params.weigh_colour_by_alpha = false;
+                    (params, texpresso::Format::Bc1)
+                }
+            };
+
+            let (input, width, height) = (
+                texture.data.as_slice(),
+                texture.width as usize,
+                texture.height as usize,
+            );
+            let mut output = vec![0u8; format.compressed_size(width, height)];
+            format.compress(input, width, height, params, output.as_mut_slice());
+
+            let output_iter = output
+                .iter()
+                .tuples()
+                .map(|(a, b)| u16::from_ne_bytes([*a, *b]));
+            texture.data = {
+                if format == texpresso::Format::Bc1 {
+                    AVec::from_slice(
+                        16,
+                        bytemuck::must_cast_slice(
+                            &output_iter
+                                .tuples()
+                                .map(|(a, b, c, d)| -> u64 { bytemuck::must_cast([c, d, a, b]) })
+                                .collect_vec(),
+                        ),
+                    )
+                } else {
+                    AVec::from_slice(
+                        16,
+                        bytemuck::must_cast_slice(
+                            &output_iter
+                                .tuples()
+                                .map(|(a, b, c, d, e, f, g, h)| -> u128 {
+                                    bytemuck::must_cast([g, h, e, f, b, c, d, a])
+                                })
+                                .collect_vec(),
+                        ),
+                    )
+                }
+            };
+        }
+    }
+
     let mut file = std::fs::OpenOptions::new()
-        .write(true)
         .create(true)
+        .truncate(true)
+        .write(true)
         .open(args.file.clone().with_extension("psp"))?;
 
     let model_file = psp_file_formats::model::Model {

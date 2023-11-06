@@ -7,6 +7,7 @@ edition = { workspace = true }
 psp_file_formats = { path = "../../crates/file_formats" }
 psp_mesh_writer = { path = "../../crates/mesh_writer" }
 
+bytemuck = { workspace = true }
 aligned-vec = { workspace = true }
 postcard = { workspace = true }
 thiserror = { workspace = true }
@@ -14,3 +15,4 @@ thiserror = { workspace = true }
 clap = { version = "4.4.6", features = ["derive"] }
 gltf = { version = "1.3.0", features = ["KHR_materials_unlit"] }
 itertools = { version = "0.11.0" }
+texpresso = { version = "2.0.1" }
