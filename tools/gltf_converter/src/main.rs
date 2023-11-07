@@ -329,6 +329,18 @@ fn main() -> Result<()> {
                                 .collect_vec(),
                         ),
                     )
+                } else if format == texpresso::Format::Bc2 {
+                    AVec::from_slice(
+                        16,
+                        bytemuck::must_cast_slice(
+                            &output_iter
+                                .tuples()
+                                .map(|(a, b, c, d, e, f, g, h)| -> u128 {
+                                    bytemuck::must_cast([g, h, e, f, a, b, c, d])
+                                })
+                                .collect_vec(),
+                        ),
+                    )
                 } else {
                     AVec::from_slice(
                         16,
