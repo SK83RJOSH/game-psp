@@ -319,41 +319,33 @@ fn main() -> Result<()> {
                 .tuples()
                 .map(|(a, b)| u16::from_ne_bytes([*a, *b]));
             texture.data = {
-                if format == texpresso::Format::Bc1 {
-                    AVec::from_slice(
-                        16,
-                        bytemuck::must_cast_slice(
-                            &output_iter
-                                .tuples()
-                                .map(|(a, b, c, d)| -> u64 { bytemuck::must_cast([c, d, a, b]) })
-                                .collect_vec(),
-                        ),
-                    )
-                } else if format == texpresso::Format::Bc2 {
-                    AVec::from_slice(
-                        16,
-                        bytemuck::must_cast_slice(
-                            &output_iter
-                                .tuples()
-                                .map(|(a, b, c, d, e, f, g, h)| -> u128 {
-                                    bytemuck::must_cast([g, h, e, f, a, b, c, d])
-                                })
-                                .collect_vec(),
-                        ),
-                    )
-                } else {
-                    AVec::from_slice(
-                        16,
-                        bytemuck::must_cast_slice(
-                            &output_iter
-                                .tuples()
-                                .map(|(a, b, c, d, e, f, g, h)| -> u128 {
-                                    bytemuck::must_cast([g, h, e, f, b, c, d, a])
-                                })
-                                .collect_vec(),
-                        ),
-                    )
-                }
+                AVec::from_slice(
+                    16,
+                    if format == texpresso::Format::Bc1 {
+                        output_iter
+                            .tuples()
+                            .map(|(a, b, c, d)| -> u64 { bytemuck::must_cast([c, d, a, b]) })
+                            .flat_map(|v| v.to_ne_bytes())
+                            .collect_vec()
+                    } else if format == texpresso::Format::Bc2 {
+                        output_iter
+                            .tuples()
+                            .map(|(a, b, c, d, e, f, g, h)| -> u128 {
+                                bytemuck::must_cast([g, h, e, f, a, b, c, d])
+                            })
+                            .flat_map(|v| v.to_ne_bytes())
+                            .collect_vec()
+                    } else {
+                        output_iter
+                            .tuples()
+                            .map(|(a, b, c, d, e, f, g, h)| -> u128 {
+                                bytemuck::must_cast([g, h, e, f, b, c, d, a])
+                            })
+                            .flat_map(|v| v.to_ne_bytes())
+                            .collect_vec()
+                    }
+                    .as_slice(),
+                )
             };
         }
     }
