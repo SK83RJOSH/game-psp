@@ -45,11 +45,18 @@ pub struct Sampler {
 
 impl Sampler {
     pub const DEFAULT: Sampler = Sampler {
-        min_filter: TextureFilter::Linear,
-        mag_filter: TextureFilter::Linear,
+        min_filter: TextureFilter::LinearMipmapLinear,
+        mag_filter: TextureFilter::LinearMipmapLinear,
         u_wrap_mode: GuTexWrapMode::Repeat,
         v_wrap_mode: GuTexWrapMode::Repeat,
     };
+}
+
+#[derive(Serialize, Deserialize)]
+pub enum TextureBind {
+    None,
+    Texture(usize),
+    TextureAndSampler(usize, usize),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -57,8 +64,7 @@ pub struct Material {
     pub state_flags: GuStateFlags,
     pub alpha_cutoff: u8,
     pub diffuse_color: u32,
-    pub texture_index: Option<usize>,
-    pub sampler_index: Option<usize>,
+    pub texture_bind: TextureBind,
     pub emission_color: u32,
 }
 
@@ -70,18 +76,17 @@ impl Material {
         .union(GuStateFlags::Lighting);
 
     pub const DEFAULT: Material = Material {
-        state_flags: GuStateFlags::from_bits_retain(0),
-        alpha_cutoff: 0x7f,
+        state_flags: GuStateFlags::CullFace.union(GuStateFlags::Lighting),
+        alpha_cutoff: 0x0,
         diffuse_color: 0xffffffff,
-        sampler_index: None,
-        texture_index: None,
+        texture_bind: TextureBind::None,
         emission_color: 0x00000000,
     };
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct Mesh {
-    pub material_index: Option<usize>,
+    pub material: Option<usize>,
     #[cfg_attr(feature = "psp", serde(with = "GuPrimitiveDef"))]
     pub primitive_type: GuPrimitive,
     #[cfg_attr(

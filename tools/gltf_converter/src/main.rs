@@ -140,8 +140,7 @@ fn main() -> Result<()> {
             state_flags: material_state_flags(&material),
             alpha_cutoff: material_alpha_cutoff(&material)?,
             diffuse_color: material_diffuse_color(&material)?,
-            texture_index: material_texture_index(&textures, &material)?,
-            sampler_index: material_sampler_index(&samplers, &material)?,
+            texture_bind: material_texture_bind(&textures, &samplers, &material)?,
             emission_color: material_emission_color(&material)?,
         });
     }
@@ -161,9 +160,9 @@ fn main() -> Result<()> {
     }
     for mesh in gltf.meshes() {
         for primitive in mesh.primitives() {
-            let material_index = primitive_material_index(&materials, &primitive.material())?;
-            if let Some(used_material) = material_index {
-                used_materials.insert(used_material);
+            let material = primitive_material(&materials, &primitive.material())?;
+            if let Some(material) = material {
+                used_materials.insert(material);
             }
             let primitive_type = primitive_type(primitive.mode())?;
             let primitive_attributes = GltfPrimitiveAttributes::new(&primitive);
@@ -229,7 +228,7 @@ fn main() -> Result<()> {
                 }
             }
             meshes.push(psp_file_formats::model::Mesh {
-                material_index,
+                material,
                 primitive_type,
                 vertex_type: psp_file_formats::model::VertexType::from_bits_truncate(
                     mesh_description.flags() as _,
@@ -247,19 +246,20 @@ fn main() -> Result<()> {
 
     let material_map = remove_and_remap_values(&used_materials, &mut materials);
     for mesh in &mut meshes {
-        if let Some(material_index) = mesh.material_index {
-            mesh.material_index = Some(material_map[material_index]);
+        if let Some(material) = mesh.material {
+            mesh.material = Some(material_map[material]);
         }
     }
 
     let mut used_textures = HashSet::<usize>::default();
     let mut used_samplers = HashSet::<usize>::default();
     for material in &mut materials {
-        if let Some(texture_index) = material.texture_index {
-            used_textures.insert(texture_index);
-        }
-        if let Some(sampler_index) = material.sampler_index {
-            used_samplers.insert(sampler_index);
+        use psp_file_formats::model::TextureBind;
+        if let TextureBind::Texture(texture) = material.texture_bind {
+            used_textures.insert(texture);
+        } else if let TextureBind::TextureAndSampler(texture, sampler) = material.texture_bind {
+            used_textures.insert(texture);
+            used_samplers.insert(sampler);
         }
     }
 
@@ -268,31 +268,37 @@ fn main() -> Result<()> {
     let mut masked_textures = HashSet::<usize>::default();
     let mut blended_textures = HashSet::<usize>::default();
     for material in &mut materials {
+        use psp_file_formats::model::TextureBind::None;
+        use psp_file_formats::model::TextureBind::Texture;
+        use psp_file_formats::model::TextureBind::TextureAndSampler;
+        let texture_bind = if let Texture(texture) = material.texture_bind {
+            Texture(texture_map[texture])
+        } else if let TextureAndSampler(texture, sampler) = material.texture_bind {
+            TextureAndSampler(texture_map[texture], sampler_map[sampler])
+        } else {
+            None
+        };
         use psp_file_formats::model::GuStateFlags;
-        if let Some(texture_index) = material.texture_index {
-            let texture_index = texture_map[texture_index];
+        if let Texture(texture) | TextureAndSampler(texture, _) = texture_bind {
             if material.state_flags.contains(GuStateFlags::AlphaTest) {
-                masked_textures.insert(texture_index);
+                masked_textures.insert(texture);
             } else if material.state_flags.contains(GuStateFlags::Blend) {
-                blended_textures.insert(texture_index);
+                blended_textures.insert(texture);
             }
-            material.texture_index = Some(texture_index);
         }
-        if let Some(sampler_index) = material.sampler_index {
-            material.sampler_index = Some(sampler_map[sampler_index]);
-        }
+        material.texture_bind = texture_bind;
     }
 
     if args.compress {
-        for (texture_index, texture) in textures.iter_mut().enumerate() {
+        for (index, texture) in textures.iter_mut().enumerate() {
             let (params, format) = {
                 let mut params = texpresso::Params {
                     algorithm: texpresso::Algorithm::IterativeClusterFit,
                     weigh_colour_by_alpha: true,
                     ..texpresso::Params::default()
                 };
-                let blended = blended_textures.contains(&texture_index);
-                let masked = masked_textures.contains(&texture_index);
+                let blended = blended_textures.contains(&index);
+                let masked = masked_textures.contains(&index);
                 if blended && masked {
                     texture.format = psp_file_formats::model::TexturePixelFormat::PsmDxt3;
                     (params, texpresso::Format::Bc2)
@@ -524,44 +530,33 @@ fn material_diffuse_color(material: &gltf::Material) -> Result<u32> {
     Ok(u32::from_ne_bytes([a, b, g, r]))
 }
 
-fn material_texture_index(
+fn material_texture_bind(
     textures: &Vec<psp_file_formats::model::Texture>,
-    material: &gltf::Material,
-) -> Result<Option<usize>> {
-    if let Some(texture) = material.pbr_metallic_roughness().base_color_texture() {
-        let index = texture.texture().source().index();
-        if index < textures.len() {
-            Ok(Some(index))
-        } else {
-            Err(Error::InvalidIndex {
-                semantic: IndexSemantic::Texture,
-                error: IndexError::Missing { index },
-            })
-        }
-    } else {
-        Ok(None)
-    }
-}
-
-fn material_sampler_index(
     samplers: &Vec<psp_file_formats::model::Sampler>,
     material: &gltf::Material,
-) -> Result<Option<usize>> {
-    if let Some(texture) = material.pbr_metallic_roughness().base_color_texture() {
-        if let Some(index) = texture.texture().sampler().index() {
-            if index < samplers.len() {
-                Ok(Some(index))
-            } else {
+) -> Result<psp_file_formats::model::TextureBind> {
+    use psp_file_formats::model::TextureBind;
+    if let Some(base_color) = material.pbr_metallic_roughness().base_color_texture() {
+        let texture = base_color.texture().source().index();
+        if texture >= textures.len() {
+            Err(Error::InvalidIndex {
+                semantic: IndexSemantic::Texture,
+                error: IndexError::Missing { index: texture },
+            })
+        } else if let Some(sampler) = base_color.texture().sampler().index() {
+            if sampler >= samplers.len() {
                 Err(Error::InvalidIndex {
                     semantic: IndexSemantic::Sampler,
-                    error: IndexError::Missing { index },
+                    error: IndexError::Missing { index: sampler },
                 })
+            } else {
+                Ok(TextureBind::TextureAndSampler(texture, sampler))
             }
         } else {
-            Ok(None)
+            Ok(TextureBind::Texture(texture))
         }
     } else {
-        Ok(None)
+        Ok(TextureBind::None)
     }
 }
 
@@ -576,7 +571,7 @@ fn material_emission_color(material: &gltf::Material) -> Result<u32> {
     Ok(u32::from_ne_bytes([255, b, g, r]))
 }
 
-fn primitive_material_index(
+fn primitive_material(
     materials: &Vec<psp_file_formats::model::Material>,
     material: &gltf::Material,
 ) -> Result<Option<usize>> {
@@ -861,16 +856,16 @@ fn mesh_description(
 fn remove_and_remap_values<T>(used: &HashSet<usize>, values: &mut Vec<T>) -> Vec<usize> {
     let mut map = (0..values.len()).collect::<Vec<_>>();
     if used.len() != values.len() {
-        let mut new_idx = 0;
-        let mut removed_idx = 0;
-        while new_idx < values.len() {
-            let old_idx = new_idx + removed_idx;
+        let mut new_index = 0;
+        let mut removed_indices = 0;
+        while new_index < values.len() {
+            let old_idx = new_index + removed_indices;
             if !used.contains(&old_idx) {
-                values.remove(new_idx);
-                removed_idx += 1;
+                values.remove(new_index);
+                removed_indices += 1;
             } else {
-                map[old_idx] = new_idx;
-                new_idx += 1;
+                map[old_idx] = new_index;
+                new_index += 1;
             }
         }
     }

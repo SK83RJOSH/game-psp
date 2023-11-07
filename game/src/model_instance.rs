@@ -1,5 +1,5 @@
 use psp::sys::*;
-use psp_file_formats::model::{GuStateFlags, Material, Mesh, Sampler, Texture};
+use psp_file_formats::model::{GuStateFlags, Material, Mesh, Sampler, Texture, TextureBind};
 
 pub trait Drawable {
     fn draw(&self);
@@ -49,22 +49,23 @@ impl Drawable for ModelInstance {
         }
 
         for mesh in &self.model.meshes {
-            let material = mesh
-                .material_index
-                .and_then(|i| self.model.materials.get(i))
-                .unwrap_or(&Material::DEFAULT);
-            if let Some(texture) = material
-                .texture_index
-                .and_then(|i| self.model.textures.get(i))
-            {
-                let sampler = material
-                    .sampler_index
-                    .and_then(|i| self.model.samplers.get(i))
-                    .unwrap_or(&Sampler::DEFAULT);
-                sampler.apply();
-                texture.apply();
+            if let Some(material) = mesh.material.and_then(|i| self.model.materials.get(i)) {
+                let (texture, sampler) = match material.texture_bind {
+                    TextureBind::None => (None, None),
+                    TextureBind::Texture(texture) => (self.model.textures.get(texture), None),
+                    TextureBind::TextureAndSampler(texture, sampler) => (
+                        self.model.textures.get(texture),
+                        self.model.samplers.get(sampler),
+                    ),
+                };
+                if let Some(texture) = texture {
+                    texture.apply();
+                    sampler.unwrap_or(&Sampler::DEFAULT).apply();
+                }
+                material.apply();
+            } else {
+                Material::DEFAULT.apply();
             }
-            material.apply();
             mesh.draw();
         }
     }
