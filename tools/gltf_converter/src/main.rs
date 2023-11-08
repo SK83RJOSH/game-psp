@@ -1,27 +1,16 @@
-use std::{
-    collections::{HashMap, HashSet},
-    io::Write,
-    path::PathBuf,
-};
+use std::{collections::HashMap, io::Write, path::PathBuf};
 
 use aligned_vec::AVec;
 use clap::Parser;
 use gltf::{accessor, Semantic};
-use itertools::Itertools;
 use thiserror::Error;
 
-#[derive(Debug)]
-pub enum IndexSemantic {
-    Sampler,
-    Texture,
-    Material,
-}
+mod image;
+mod material;
+mod sampler;
 
-#[derive(Error, Debug)]
-pub enum IndexError {
-    #[error("missing: {index:?}")]
-    Missing { index: usize },
-}
+mod stripping;
+mod compression;
 
 #[derive(Debug)]
 pub enum AccessorSemantic {
@@ -61,29 +50,20 @@ pub enum Error {
     MeshWriter(psp_mesh_writer::Error),
     #[error("postcard error: {0}")]
     Postcard(#[from] postcard::Error),
-    #[error("unsupported image format: {format:?}")]
-    UnsupportedImageFormat { format: gltf::image::Format },
-    #[error("unsupported image dimensions: {width:?}, {height:?}")]
-    UnsupportedImageDimensions { width: u32, height: u32 },
-    #[error("unsupported sampler wrap mode: {mode:?}")]
-    UnsupportedSamplerWrapMode { mode: gltf::texture::WrappingMode },
-    #[error("unsupported material alpha cutoff: {alpha_cutoff:?}")]
-    UnsupportedMaterialAlphaCutoff { alpha_cutoff: f32 },
-    #[error("unsupported material emissive factor: {base_color_factor:?}")]
-    UnsupportedMaterialBaseColorFactor { base_color_factor: [f32; 4] },
-    #[error("unsupported material emissive factor: {emissive_factor:?}")]
-    UnsupportedMaterialEmissiveFactor { emissive_factor: [f32; 3] },
+    #[error("image error: {0}")]
+    Image(#[from] image::Error),
+    #[error("sampler error: {0}")]
+    Sampler(#[from] sampler::Error),
+    #[error("material error: {0}")]
+    Material(#[from] material::Error),
     #[error("unsupported primitive mode: {mode:?}")]
     UnsupportedPrimitive { mode: gltf::mesh::Mode },
     #[error("unsupported weight count: {count:?}")]
     UnsupportedWeightCount { count: usize },
     #[error("unsupported morph count: {count:?}")]
     UnsupportedMorphCount { count: usize },
-    #[error("index error ({semantic:?}): {error:?}")]
-    InvalidIndex {
-        semantic: IndexSemantic,
-        error: IndexError,
-    },
+    #[error("missing material: {index:?}")]
+    MissingMaterial { index: usize },
     #[error("invalid accessor ({semantic:?}): {error:?}")]
     InvalidAccessor {
         semantic: AccessorSemantic,
@@ -104,6 +84,8 @@ struct Args {
     #[arg()]
     file: PathBuf,
     #[arg(short, long, default_value_t = true)]
+    strip: bool,
+    #[arg(short, long, default_value_t = true)]
     compress: bool,
 }
 
@@ -111,59 +93,14 @@ fn main() -> Result<()> {
     let args = Args::parse();
     let (gltf, buffers, images) = gltf::import(args.file.clone())?;
 
-    let mut textures = vec![];
-    for image in &images {
-        let (width, height) = image_dimensions(image)?;
-        textures.push(psp_file_formats::model::Texture {
-            format: image_format(image)?,
-            mip_levels: 0,
-            width,
-            height,
-            buffer_width: width,
-            data: AVec::from_slice(16, &image_data(image)?),
-        });
-    }
-
-    let mut samplers = vec![];
-    for sampler in gltf.samplers() {
-        samplers.push(psp_file_formats::model::Sampler {
-            min_filter: sampler_get_min_filter(sampler.min_filter()),
-            mag_filter: sampler_get_mag_filter(sampler.mag_filter()),
-            u_wrap_mode: sampler_get_wrap_mode(sampler.wrap_s())?,
-            v_wrap_mode: sampler_get_wrap_mode(sampler.wrap_t())?,
-        });
-    }
-
-    let mut materials = vec![];
-    for material in gltf.materials() {
-        materials.push(psp_file_formats::model::Material {
-            state_flags: material_state_flags(&material),
-            alpha_cutoff: material_alpha_cutoff(&material)?,
-            diffuse_color: material_diffuse_color(&material)?,
-            texture_bind: material_texture_bind(&textures, &samplers, &material)?,
-            emission_color: material_emission_color(&material)?,
-        });
-    }
+    let mut textures = image::read_textures(&images)?;
+    let mut samplers = sampler::read_samplers(gltf.samplers())?;
+    let mut materials = material::read_materials(&textures, &samplers, gltf.materials())?;
 
     let mut meshes = vec![];
-    let mut skinned_meshes = HashSet::<usize>::default();
-    let mut non_skinned_meshes = HashSet::<usize>::default();
-    let mut used_materials = HashSet::<usize>::default();
-    for gltf_node in gltf.nodes() {
-        if let Some(gltf_mesh) = gltf_node.mesh() {
-            if gltf_node.skin().is_some() {
-                skinned_meshes.insert(gltf_mesh.index());
-            } else {
-                non_skinned_meshes.insert(gltf_mesh.index());
-            }
-        }
-    }
     for mesh in gltf.meshes() {
         for primitive in mesh.primitives() {
             let material = primitive_material(&materials, &primitive.material())?;
-            if let Some(material) = material {
-                used_materials.insert(material);
-            }
             let primitive_type = primitive_type(primitive.mode())?;
             let primitive_attributes = GltfPrimitiveAttributes::new(&primitive);
             let mesh_description = mesh_description(&primitive_attributes)?;
@@ -244,116 +181,12 @@ fn main() -> Result<()> {
         }
     }
 
-    let material_map = remove_and_remap_values(&used_materials, &mut materials);
-    for mesh in &mut meshes {
-        if let Some(material) = mesh.material {
-            mesh.material = Some(material_map[material]);
-        }
-    }
-
-    let mut used_textures = HashSet::<usize>::default();
-    let mut used_samplers = HashSet::<usize>::default();
-    for material in &mut materials {
-        use psp_file_formats::model::TextureBind;
-        if let TextureBind::Texture(texture) = material.texture_bind {
-            used_textures.insert(texture);
-        } else if let TextureBind::TextureAndSampler(texture, sampler) = material.texture_bind {
-            used_textures.insert(texture);
-            used_samplers.insert(sampler);
-        }
-    }
-
-    let texture_map = remove_and_remap_values(&used_textures, &mut textures);
-    let sampler_map = remove_and_remap_values(&used_samplers, &mut samplers);
-    let mut masked_textures = HashSet::<usize>::default();
-    let mut blended_textures = HashSet::<usize>::default();
-    for material in &mut materials {
-        use psp_file_formats::model::TextureBind::None;
-        use psp_file_formats::model::TextureBind::Texture;
-        use psp_file_formats::model::TextureBind::TextureAndSampler;
-        let texture_bind = if let Texture(texture) = material.texture_bind {
-            Texture(texture_map[texture])
-        } else if let TextureAndSampler(texture, sampler) = material.texture_bind {
-            TextureAndSampler(texture_map[texture], sampler_map[sampler])
-        } else {
-            None
-        };
-        use psp_file_formats::model::GuStateFlags;
-        if let Texture(texture) | TextureAndSampler(texture, _) = texture_bind {
-            if material.state_flags.contains(GuStateFlags::AlphaTest) {
-                masked_textures.insert(texture);
-            } else if material.state_flags.contains(GuStateFlags::Blend) {
-                blended_textures.insert(texture);
-            }
-        }
-        material.texture_bind = texture_bind;
+    if args.strip {
+        stripping::strip_unused(&mut textures, &mut samplers, &mut materials, &mut meshes);
     }
 
     if args.compress {
-        for (index, texture) in textures.iter_mut().enumerate() {
-            let (params, format) = {
-                let mut params = texpresso::Params {
-                    algorithm: texpresso::Algorithm::IterativeClusterFit,
-                    weigh_colour_by_alpha: true,
-                    ..texpresso::Params::default()
-                };
-                let blended = blended_textures.contains(&index);
-                let masked = masked_textures.contains(&index);
-                if blended && masked {
-                    texture.format = psp_file_formats::model::TexturePixelFormat::PsmDxt3;
-                    (params, texpresso::Format::Bc2)
-                } else if blended {
-                    texture.format = psp_file_formats::model::TexturePixelFormat::PsmDxt5;
-                    (params, texpresso::Format::Bc3)
-                } else {
-                    texture.format = psp_file_formats::model::TexturePixelFormat::PsmDxt1;
-                    params.weigh_colour_by_alpha = false;
-                    (params, texpresso::Format::Bc1)
-                }
-            };
-
-            let (input, width, height) = (
-                texture.data.as_slice(),
-                texture.width as usize,
-                texture.height as usize,
-            );
-            let mut output = vec![0u8; format.compressed_size(width, height)];
-            format.compress(input, width, height, params, output.as_mut_slice());
-
-            let output_iter = output
-                .iter()
-                .tuples()
-                .map(|(a, b)| u16::from_ne_bytes([*a, *b]));
-            texture.data = {
-                AVec::from_slice(
-                    16,
-                    if format == texpresso::Format::Bc1 {
-                        output_iter
-                            .tuples()
-                            .map(|(a, b, c, d)| -> u64 { bytemuck::must_cast([c, d, a, b]) })
-                            .flat_map(|v| v.to_ne_bytes())
-                            .collect_vec()
-                    } else if format == texpresso::Format::Bc2 {
-                        output_iter
-                            .tuples()
-                            .map(|(a, b, c, d, e, f, g, h)| -> u128 {
-                                bytemuck::must_cast([g, h, e, f, a, b, c, d])
-                            })
-                            .flat_map(|v| v.to_ne_bytes())
-                            .collect_vec()
-                    } else {
-                        output_iter
-                            .tuples()
-                            .map(|(a, b, c, d, e, f, g, h)| -> u128 {
-                                bytemuck::must_cast([g, h, e, f, b, c, d, a])
-                            })
-                            .flat_map(|v| v.to_ne_bytes())
-                            .collect_vec()
-                    }
-                    .as_slice(),
-                )
-            };
-        }
+        compression::compress_textures_dxt(&materials, &mut textures);
     }
 
     let mut file = std::fs::OpenOptions::new()
@@ -374,203 +207,6 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn image_dimensions(image: &gltf::image::Data) -> Result<(i32, i32)> {
-    let (width, height) = (image.width, image.height);
-    if !width.is_power_of_two() || !height.is_power_of_two() || width > 512 || height > 512 {
-        Err(Error::UnsupportedImageDimensions { width, height })
-    } else {
-        Ok((width as i32, height as i32))
-    }
-}
-
-fn image_format(image: &gltf::image::Data) -> Result<psp_file_formats::model::TexturePixelFormat> {
-    match image.format {
-        gltf::image::Format::R8G8B8
-        | gltf::image::Format::R8G8B8A8
-        | gltf::image::Format::R16G16B16
-        | gltf::image::Format::R16G16B16A16 => {
-            Ok(psp_file_formats::model::TexturePixelFormat::Psm8888)
-        }
-        format => Err(Error::UnsupportedImageFormat { format }),
-    }
-}
-
-fn image_data(image: &gltf::image::Data) -> Result<Vec<u8>> {
-    let mut result = Vec::<u8>::with_capacity((image.width * image.height) as usize);
-    match image.format {
-        gltf::image::Format::R8G8B8 => {
-            image.pixels.iter().tuples().for_each(|(r, g, b)| {
-                result.push(*r);
-                result.push(*g);
-                result.push(*b);
-                result.push(255);
-            });
-            Ok(result)
-        }
-        gltf::image::Format::R8G8B8A8 => {
-            image.pixels.iter().tuples().for_each(|(r, g, b, a)| {
-                result.push(*r);
-                result.push(*g);
-                result.push(*b);
-                result.push(*a);
-            });
-            Ok(result)
-        }
-        gltf::image::Format::R16G16B16 => {
-            image
-                .pixels
-                .iter()
-                .tuples()
-                .map(|(a, b)| (u16::from_le_bytes([*a, *b]) / 257) as u8)
-                .tuple_windows()
-                .for_each(|(r, g, b)| {
-                    result.push(255);
-                    result.push(r);
-                    result.push(g);
-                    result.push(b);
-                });
-            Ok(result)
-        }
-        gltf::image::Format::R16G16B16A16 => {
-            image
-                .pixels
-                .iter()
-                .tuples()
-                .map(|(a, b)| (u16::from_le_bytes([*a, *b]) / 257) as u8)
-                .tuple_windows()
-                .for_each(|(r, g, b, a)| {
-                    result.push(a);
-                    result.push(r);
-                    result.push(g);
-                    result.push(b);
-                });
-            Ok(result)
-        }
-        format => Err(Error::UnsupportedImageFormat { format }),
-    }
-}
-
-fn sampler_get_min_filter(
-    filter: Option<gltf::texture::MinFilter>,
-) -> psp_file_formats::model::TextureFilter {
-    use gltf::texture::MinFilter;
-    use psp_file_formats::model::TextureFilter;
-    match filter {
-        Some(MinFilter::Linear) => TextureFilter::Linear,
-        Some(MinFilter::LinearMipmapLinear) => TextureFilter::LinearMipmapLinear,
-        Some(MinFilter::LinearMipmapNearest) => TextureFilter::LinearMipmapNearest,
-        Some(MinFilter::Nearest) => TextureFilter::Nearest,
-        Some(MinFilter::NearestMipmapLinear) => TextureFilter::NearestMipmapLinear,
-        Some(MinFilter::NearestMipmapNearest) => TextureFilter::NearestMipmapNearest,
-        None => TextureFilter::Linear,
-    }
-}
-
-fn sampler_get_mag_filter(
-    filter: Option<gltf::texture::MagFilter>,
-) -> psp_file_formats::model::TextureFilter {
-    match filter {
-        Some(gltf::texture::MagFilter::Linear) => psp_file_formats::model::TextureFilter::Linear,
-        Some(gltf::texture::MagFilter::Nearest) => psp_file_formats::model::TextureFilter::Nearest,
-        None => psp_file_formats::model::TextureFilter::Linear,
-    }
-}
-
-fn sampler_get_wrap_mode(
-    mode: gltf::texture::WrappingMode,
-) -> Result<psp_file_formats::model::GuTexWrapMode> {
-    use gltf::texture::WrappingMode;
-    use psp_file_formats::model::GuTexWrapMode;
-    match mode {
-        WrappingMode::ClampToEdge => Ok(GuTexWrapMode::Clamp),
-        WrappingMode::Repeat => Ok(GuTexWrapMode::Repeat),
-        WrappingMode::MirroredRepeat => Err(Error::UnsupportedSamplerWrapMode { mode }),
-    }
-}
-
-fn material_state_flags(material: &gltf::Material) -> psp_file_formats::model::GuStateFlags {
-    use gltf::material::AlphaMode;
-    use psp_file_formats::model::GuStateFlags;
-    let mut state_flags = GuStateFlags::default();
-    if material.alpha_mode() == AlphaMode::Mask {
-        state_flags.set(GuStateFlags::AlphaTest, true);
-    } else if material.alpha_mode() == AlphaMode::Blend {
-        state_flags.set(GuStateFlags::Blend, true);
-    }
-    state_flags.set(GuStateFlags::CullFace, !material.double_sided());
-    let has_texture = material
-        .pbr_metallic_roughness()
-        .base_color_texture()
-        .is_some();
-    state_flags.set(GuStateFlags::Texture2D, has_texture);
-    state_flags.set(GuStateFlags::Lighting, !material.unlit());
-    state_flags
-}
-
-fn material_alpha_cutoff(material: &gltf::Material) -> Result<u8> {
-    if let Some(alpha_cutoff) = material.alpha_cutoff() {
-        if alpha_cutoff < 0.0 || 1.0 < alpha_cutoff {
-            Err(Error::UnsupportedMaterialAlphaCutoff { alpha_cutoff })
-        } else {
-            Ok((alpha_cutoff * 255.0) as u8)
-        }
-    } else {
-        Ok(128)
-    }
-}
-
-fn material_diffuse_color(material: &gltf::Material) -> Result<u32> {
-    let base_color_factor = material.pbr_metallic_roughness().base_color_factor();
-    for factor in base_color_factor {
-        if factor < 0.0 || 1.0 < factor {
-            return Err(Error::UnsupportedMaterialBaseColorFactor { base_color_factor });
-        }
-    }
-    let [r, g, b, a] = base_color_factor.map(|f| (f * 255.0) as u8);
-    Ok(u32::from_ne_bytes([a, b, g, r]))
-}
-
-fn material_texture_bind(
-    textures: &Vec<psp_file_formats::model::Texture>,
-    samplers: &Vec<psp_file_formats::model::Sampler>,
-    material: &gltf::Material,
-) -> Result<psp_file_formats::model::TextureBind> {
-    use psp_file_formats::model::TextureBind;
-    if let Some(base_color) = material.pbr_metallic_roughness().base_color_texture() {
-        let texture = base_color.texture().source().index();
-        if texture >= textures.len() {
-            Err(Error::InvalidIndex {
-                semantic: IndexSemantic::Texture,
-                error: IndexError::Missing { index: texture },
-            })
-        } else if let Some(sampler) = base_color.texture().sampler().index() {
-            if sampler >= samplers.len() {
-                Err(Error::InvalidIndex {
-                    semantic: IndexSemantic::Sampler,
-                    error: IndexError::Missing { index: sampler },
-                })
-            } else {
-                Ok(TextureBind::TextureAndSampler(texture, sampler))
-            }
-        } else {
-            Ok(TextureBind::Texture(texture))
-        }
-    } else {
-        Ok(TextureBind::None)
-    }
-}
-
-fn material_emission_color(material: &gltf::Material) -> Result<u32> {
-    let emissive_factor = material.emissive_factor();
-    for factor in emissive_factor {
-        if factor < 0.0 || 1.0 < factor {
-            return Err(Error::UnsupportedMaterialEmissiveFactor { emissive_factor });
-        }
-    }
-    let [r, g, b] = emissive_factor.map(|f| (f * 255.0) as u8);
-    Ok(u32::from_ne_bytes([255, b, g, r]))
-}
-
 fn primitive_material(
     materials: &Vec<psp_file_formats::model::Material>,
     material: &gltf::Material,
@@ -579,10 +215,7 @@ fn primitive_material(
         if index < materials.len() {
             Ok(Some(index))
         } else {
-            Err(Error::InvalidIndex {
-                semantic: IndexSemantic::Material,
-                error: IndexError::Missing { index },
-            })
+            Err(Error::MissingMaterial { index })
         }
     } else {
         Ok(None)
@@ -851,23 +484,4 @@ fn mesh_description(
             .morph_count(attributes.morph_count()?)
             .build();
     Ok(mesh_description)
-}
-
-fn remove_and_remap_values<T>(used: &HashSet<usize>, values: &mut Vec<T>) -> Vec<usize> {
-    let mut map = (0..values.len()).collect::<Vec<_>>();
-    if used.len() != values.len() {
-        let mut new_index = 0;
-        let mut removed_indices = 0;
-        while new_index < values.len() {
-            let old_idx = new_index + removed_indices;
-            if !used.contains(&old_idx) {
-                values.remove(new_index);
-                removed_indices += 1;
-            } else {
-                map[old_idx] = new_index;
-                new_index += 1;
-            }
-        }
-    }
-    map
 }
