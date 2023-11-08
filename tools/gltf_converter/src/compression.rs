@@ -85,7 +85,7 @@ fn texture_shuffle_data(data: &[u8], compressor: TexpressoCompressor) -> Vec<u8>
             .collect_vec(),
         TexpressoCompressor::Bc3 => data
             .tuples()
-            .map(|(a, b, c, d, e, f, g, h)| -> u128 { must_cast([g, h, e, f, a, b, c, d]) })
+            .map(|(a, b, c, d, e, f, g, h)| -> u128 { must_cast([g, h, e, f, b, c, d, a]) })
             .flat_map(|v| v.to_ne_bytes())
             .collect_vec(),
         _ => panic!("unsupported texpressor compressor"),
