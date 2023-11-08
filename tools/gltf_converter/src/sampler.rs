@@ -18,16 +18,16 @@ pub enum Error {
 type Result<T, E = Error> = core::result::Result<T, E>;
 
 pub fn read_samplers(samplers: GltfSamplers) -> Result<Vec<PspSampler>> {
-    let mut result = vec![];
-    for sampler in samplers {
-        result.push(PspSampler {
-            min_filter: sampler_get_min_filter(sampler.min_filter()),
-            mag_filter: sampler_get_mag_filter(sampler.mag_filter()),
-            u_wrap_mode: sampler_get_wrap_mode(sampler.wrap_s())?,
-            v_wrap_mode: sampler_get_wrap_mode(sampler.wrap_t())?,
-        });
-    }
-    Ok(result)
+    samplers
+        .map(|sampler| {
+            Ok(PspSampler {
+                min_filter: sampler_get_min_filter(sampler.min_filter()),
+                mag_filter: sampler_get_mag_filter(sampler.mag_filter()),
+                u_wrap_mode: sampler_get_wrap_mode(sampler.wrap_s())?,
+                v_wrap_mode: sampler_get_wrap_mode(sampler.wrap_t())?,
+            })
+        })
+        .collect()
 }
 
 fn sampler_get_min_filter(filter: Option<GltfMinFilter>) -> PspTextureFilter {

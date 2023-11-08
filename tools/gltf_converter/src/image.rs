@@ -18,20 +18,21 @@ pub enum Error {
 
 type Result<T, E = Error> = core::result::Result<T, E>;
 
-pub fn read_textures(images: &[GltfImageData]) -> Result<Vec<PspTexture>> {
-    let mut textures = vec![];
-    for image in images {
-        let (width, height) = image_dimensions(image)?;
-        textures.push(PspTexture {
-            format: image_format(image)?,
-            mip_levels: 0,
-            width,
-            height,
-            buffer_width: width,
-            data: AVec::from_slice(16, &image_data(image)?),
-        });
-    }
-    Ok(textures)
+pub fn read_textures(images: &Vec<GltfImageData>) -> Result<Vec<PspTexture>> {
+    images
+        .iter()
+        .map(|image| {
+            let (width, height) = image_dimensions(image)?;
+            Ok(PspTexture {
+                format: image_format(image)?,
+                mip_levels: 0,
+                width,
+                height,
+                buffer_width: width,
+                data: AVec::from_slice(16, &image_data(image)?),
+            })
+        })
+        .collect()
 }
 
 fn image_dimensions(image: &GltfImageData) -> Result<(i32, i32)> {

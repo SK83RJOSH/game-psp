@@ -44,17 +44,17 @@ pub fn read_materials(
     samplers: &Vec<PspSampler>,
     materials: GltfMaterials,
 ) -> Result<Vec<PspMaterial>> {
-    let mut result = vec![];
-    for material in materials {
-        result.push(PspMaterial {
-            state_flags: material_state_flags(&material),
-            alpha_cutoff: material_alpha_cutoff(&material)?,
-            diffuse_color: material_diffuse_color(&material)?,
-            texture_bind: material_texture_bind(&textures, &samplers, &material)?,
-            emission_color: material_emission_color(&material)?,
-        });
-    }
-    Ok(result)
+    materials
+        .map(|material| {
+            Ok(PspMaterial {
+                state_flags: material_state_flags(&material),
+                alpha_cutoff: material_alpha_cutoff(&material)?,
+                diffuse_color: material_diffuse_color(&material)?,
+                texture_bind: material_texture_bind(&textures, &samplers, &material)?,
+                emission_color: material_emission_color(&material)?,
+            })
+        })
+        .collect()
 }
 
 fn material_state_flags(material: &gltf::Material) -> PspMaterialFlags {
