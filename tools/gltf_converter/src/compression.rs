@@ -14,8 +14,8 @@ type TexpressoParams = texpresso::Params;
 type TexpressoAlgo = texpresso::Algorithm;
 type TexpressoCompressor = texpresso::Format;
 
-pub fn compress_textures_dxt(materials: &Vec<PspMaterial>, textures: &mut Vec<PspTexture>) {
-    let (blended, masked) = texture_usage(&materials);
+pub fn compress_textures_dxt(materials: &[PspMaterial], textures: &mut [PspTexture]) {
+    let (blended, masked) = texture_usage(materials);
     for (index, texture) in textures.iter_mut().enumerate() {
         let (params, compressor, format) = texture_format(&index, &blended, &masked);
         texture.format = format;
@@ -29,7 +29,7 @@ pub fn compress_textures_dxt(materials: &Vec<PspMaterial>, textures: &mut Vec<Ps
     }
 }
 
-fn texture_usage(materials: &Vec<PspMaterial>) -> (HashSet<usize>, HashSet<usize>) {
+fn texture_usage(materials: &[PspMaterial]) -> (HashSet<usize>, HashSet<usize>) {
     let mut masked = HashSet::<usize>::default();
     let mut blended = HashSet::<usize>::default();
     for material in materials {
@@ -56,7 +56,7 @@ fn texture_format(
         weigh_colour_by_alpha: true,
         ..TexpressoParams::default()
     };
-    let (blended, masked) = (blended.contains(&index), masked.contains(&index));
+    let (blended, masked) = (blended.contains(index), masked.contains(index));
     if blended && masked {
         (params, TexpressoCompressor::Bc2, PspTextureFormat::PsmDxt3)
     } else if blended {
@@ -67,7 +67,7 @@ fn texture_format(
     }
 }
 
-fn texture_shuffle_data(data: &Vec<u8>, compressor: TexpressoCompressor) -> Vec<u8> {
+fn texture_shuffle_data(data: &[u8], compressor: TexpressoCompressor) -> Vec<u8> {
     let data = data
         .iter()
         .tuples()
@@ -88,6 +88,6 @@ fn texture_shuffle_data(data: &Vec<u8>, compressor: TexpressoCompressor) -> Vec<
             .map(|(a, b, c, d, e, f, g, h)| -> u128 { must_cast([g, h, e, f, a, b, c, d]) })
             .flat_map(|v| v.to_ne_bytes())
             .collect_vec(),
-        _ => panic!("unsupported texpressor compressor!"),
+        _ => panic!("unsupported texpressor compressor"),
     }
 }

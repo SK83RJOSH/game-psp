@@ -10,7 +10,7 @@ pub fn strip_unused(
     textures: &mut Vec<PspTexture>,
     samplers: &mut Vec<PspSampler>,
     materials: &mut Vec<PspMaterial>,
-    meshes: &mut Vec<PspMesh>,
+    meshes: &mut [PspMesh],
 ) {
     let used_materials = meshes.iter().filter_map(|m| m.material).collect();
     let material_map = remove_and_remap_values(&used_materials, materials);
@@ -45,19 +45,21 @@ pub fn strip_unused(
 }
 
 fn remove_and_remap_values<T>(used: &HashSet<usize>, values: &mut Vec<T>) -> Vec<usize> {
-    let mut map: Vec<usize> = (0..values.len()).collect();
-    if used.len() != values.len() {
-        let mut new_index = 0;
-        let mut removed_indices = 0;
-        while new_index < values.len() {
-            let old_idx = new_index + removed_indices;
-            if !used.contains(&old_idx) {
-                values.remove(new_index);
-                removed_indices += 1;
-            } else {
-                map[old_idx] = new_index;
-                new_index += 1;
-            }
+    if used.len() == values.len() {
+        return (0..values.len()).collect();
+    };
+
+    let mut new_index = 0;
+    let mut removed_indices = 0;
+    let mut map = vec![0; values.len()];
+    while new_index < values.len() {
+        let old_idx = new_index + removed_indices;
+        if used.contains(&old_idx) {
+            map[old_idx] = new_index;
+            new_index += 1;
+        } else {
+            values.remove(new_index);
+            removed_indices += 1;
         }
     }
     map

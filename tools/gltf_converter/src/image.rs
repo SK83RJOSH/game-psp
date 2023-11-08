@@ -18,7 +18,7 @@ pub enum Error {
 
 type Result<T, E = Error> = core::result::Result<T, E>;
 
-pub fn read_textures(images: &Vec<GltfImageData>) -> Result<Vec<PspTexture>> {
+pub fn read_textures(images: &[GltfImageData]) -> Result<Vec<PspTexture>> {
     images
         .iter()
         .map(|image| {

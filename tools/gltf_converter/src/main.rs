@@ -9,8 +9,8 @@ mod image;
 mod material;
 mod sampler;
 
-mod stripping;
 mod compression;
+mod stripping;
 
 #[derive(Debug)]
 pub enum AccessorSemantic {
@@ -208,7 +208,7 @@ fn main() -> Result<()> {
 }
 
 fn primitive_material(
-    materials: &Vec<psp_file_formats::model::Material>,
+    materials: &[psp_file_formats::model::Material],
     material: &gltf::Material,
 ) -> Result<Option<usize>> {
     if let Some(index) = material.index() {
