@@ -72,20 +72,22 @@ fn texture_shuffle_data(data: &Vec<u8>, compressor: TexpressoCompressor) -> Vec<
         .iter()
         .tuples()
         .map(|(a, b)| u16::from_ne_bytes([*a, *b]));
-    if compressor == TexpressoCompressor::Bc1 {
-        data.tuples()
+    match compressor {
+        TexpressoCompressor::Bc1 => data
+            .tuples()
             .map(|(a, b, c, d)| -> u64 { must_cast([c, d, a, b]) })
             .flat_map(|v| v.to_ne_bytes())
-            .collect_vec()
-    } else if compressor == TexpressoCompressor::Bc2 {
-        data.tuples()
+            .collect_vec(),
+        TexpressoCompressor::Bc2 => data
+            .tuples()
             .map(|(a, b, c, d, e, f, g, h)| -> u128 { must_cast([g, h, e, f, a, b, c, d]) })
             .flat_map(|v| v.to_ne_bytes())
-            .collect_vec()
-    } else {
-        data.tuples()
-            .map(|(a, b, c, d, e, f, g, h)| -> u128 { must_cast([g, h, e, f, b, c, d, a]) })
+            .collect_vec(),
+        TexpressoCompressor::Bc3 => data
+            .tuples()
+            .map(|(a, b, c, d, e, f, g, h)| -> u128 { must_cast([g, h, e, f, a, b, c, d]) })
             .flat_map(|v| v.to_ne_bytes())
-            .collect_vec()
+            .collect_vec(),
+        _ => panic!("unsupported texpressor compressor!"),
     }
 }
