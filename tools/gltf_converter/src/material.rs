@@ -75,23 +75,18 @@ fn material_state_flags(material: &gltf::Material) -> PspMaterialFlags {
 }
 
 fn material_alpha_cutoff(material: &gltf::Material) -> Result<u8> {
-    if let Some(alpha_cutoff) = material.alpha_cutoff() {
-        if alpha_cutoff < 0.0 || 1.0 < alpha_cutoff {
-            Err(Error::InvalidAlphaCutoff { alpha_cutoff })
-        } else {
-            Ok((alpha_cutoff * 255.0) as u8)
-        }
+    let alpha_cutoff = material.alpha_cutoff().unwrap_or(0.5);
+    if alpha_cutoff < 0.0 || 1.0 < alpha_cutoff {
+        Err(Error::InvalidAlphaCutoff { alpha_cutoff })
     } else {
-        Ok(128)
+        Ok((alpha_cutoff * 255.0) as u8)
     }
 }
 
 fn material_diffuse_color(material: &gltf::Material) -> Result<u32> {
     let base_color_factor = material.pbr_metallic_roughness().base_color_factor();
-    for factor in base_color_factor {
-        if factor < 0.0 || 1.0 < factor {
-            return Err(Error::InvalidBaseColorFactor { base_color_factor });
-        }
+    if base_color_factor.iter().any(|&f| f < 0.0 || 1.0 < f) {
+        return Err(Error::InvalidBaseColorFactor { base_color_factor });
     }
     let [r, g, b, a] = base_color_factor.map(|f| (f * 255.0) as u8);
     Ok(u32::from_ne_bytes([a, b, g, r]))
@@ -102,36 +97,32 @@ fn material_texture_bind(
     samplers: &Vec<PspSampler>,
     material: &GltfMaterial,
 ) -> Result<PspTextureBind> {
-    if let Some(base_color) = material.pbr_metallic_roughness().base_color_texture() {
-        let texture = base_color.texture().source().index();
-        if texture >= textures.len() {
-            Err(Error::InvalidIndex {
-                semantic: IndexSemantic::Texture,
-                error: IndexError::Missing { index: texture },
-            })
-        } else if let Some(sampler) = base_color.texture().sampler().index() {
-            if sampler >= samplers.len() {
-                Err(Error::InvalidIndex {
-                    semantic: IndexSemantic::Sampler,
-                    error: IndexError::Missing { index: sampler },
-                })
-            } else {
-                Ok(PspTextureBind::TextureAndSampler(texture, sampler))
-            }
-        } else {
-            Ok(PspTextureBind::Texture(texture))
-        }
-    } else {
-        Ok(PspTextureBind::None)
+    let Some(base_color) = material.pbr_metallic_roughness().base_color_texture() else {
+        return Ok(PspTextureBind::None);
+    };
+    let texture = base_color.texture().source().index();
+    if texture >= textures.len() {
+        return Err(Error::InvalidIndex {
+            semantic: IndexSemantic::Texture,
+            error: IndexError::Missing { index: texture },
+        });
     }
+    let Some(sampler) = base_color.texture().sampler().index() else {
+        return Ok(PspTextureBind::Texture(texture));
+    };
+    if sampler >= samplers.len() {
+        return Err(Error::InvalidIndex {
+            semantic: IndexSemantic::Sampler,
+            error: IndexError::Missing { index: sampler },
+        });
+    }
+    Ok(PspTextureBind::TextureAndSampler(texture, sampler))
 }
 
 fn material_emission_color(material: &GltfMaterial) -> Result<u32> {
     let emissive_factor = material.emissive_factor();
-    for factor in emissive_factor {
-        if factor < 0.0 || 1.0 < factor {
-            return Err(Error::InvalidEmissiveFactor { emissive_factor });
-        }
+    if emissive_factor.iter().any(|&f| f < 0.0 || 1.0 < f) {
+        return Err(Error::InvalidEmissiveFactor { emissive_factor });
     }
     let [r, g, b] = emissive_factor.map(|f| (f * 255.0) as u8);
     Ok(u32::from_ne_bytes([255, b, g, r]))

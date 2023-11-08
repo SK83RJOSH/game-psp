@@ -12,13 +12,7 @@ pub fn strip_unused(
     materials: &mut Vec<PspMaterial>,
     meshes: &mut Vec<PspMesh>,
 ) {
-    let mut used_materials = HashSet::<usize>::default();
-    for mesh in meshes.iter() {
-        if let Some(material) = mesh.material {
-            used_materials.insert(material);
-        }
-    }
-
+    let used_materials = meshes.iter().filter_map(|m| m.material).collect();
     let material_map = remove_and_remap_values(&used_materials, materials);
     for mesh in meshes.iter_mut() {
         if let Some(material) = mesh.material {
@@ -26,8 +20,8 @@ pub fn strip_unused(
         }
     }
 
-    let mut used_textures = HashSet::<usize>::default();
-    let mut used_samplers = HashSet::<usize>::default();
+    let mut used_textures = HashSet::default();
+    let mut used_samplers = HashSet::default();
     for material in materials.iter() {
         if let PspTextureBind::Texture(texture) = material.texture_bind {
             used_textures.insert(texture);
@@ -40,19 +34,18 @@ pub fn strip_unused(
     let texture_map = remove_and_remap_values(&used_textures, textures);
     let sampler_map = remove_and_remap_values(&used_samplers, samplers);
     for material in materials.iter_mut() {
-        let texture_bind = if let PspTextureBind::Texture(texture) = material.texture_bind {
-            PspTextureBind::Texture(texture_map[texture])
-        } else if let PspTextureBind::TextureAndSampler(texture, sampler) = material.texture_bind {
-            PspTextureBind::TextureAndSampler(texture_map[texture], sampler_map[sampler])
-        } else {
-            PspTextureBind::None
+        material.texture_bind = match material.texture_bind {
+            PspTextureBind::Texture(texture) => PspTextureBind::Texture(texture_map[texture]),
+            PspTextureBind::TextureAndSampler(texture, sampler) => {
+                PspTextureBind::TextureAndSampler(texture_map[texture], sampler_map[sampler])
+            }
+            PspTextureBind::None => PspTextureBind::None,
         };
-        material.texture_bind = texture_bind;
     }
 }
 
 fn remove_and_remap_values<T>(used: &HashSet<usize>, values: &mut Vec<T>) -> Vec<usize> {
-    let mut map = (0..values.len()).collect::<Vec<_>>();
+    let mut map: Vec<usize> = (0..values.len()).collect();
     if used.len() != values.len() {
         let mut new_index = 0;
         let mut removed_indices = 0;
