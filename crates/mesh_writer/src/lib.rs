@@ -1,6 +1,9 @@
 #![no_std]
 
-use core::{mem::size_of, slice};
+use core::{
+    mem::{align_of, size_of},
+    slice,
+};
 
 pub mod prelude;
 
@@ -18,6 +21,13 @@ impl IndexFormat {
             IndexFormat::None => 0,
             IndexFormat::U8 => size_of::<u8>(),
             IndexFormat::U16 => size_of::<u16>(),
+        }
+    }
+    pub fn align(&self) -> usize {
+        match *self {
+            IndexFormat::None => 1,
+            IndexFormat::U8 => align_of::<u8>(),
+            IndexFormat::U16 => align_of::<u16>(),
         }
     }
 }
@@ -50,6 +60,14 @@ impl WeightFormat {
             WeightFormat::U8 => size_of::<u8>(),
             WeightFormat::U16 => size_of::<u16>(),
             WeightFormat::F32 => size_of::<f32>(),
+        }
+    }
+    pub fn align(&self) -> usize {
+        match *self {
+            WeightFormat::None => 1,
+            WeightFormat::U8 => align_of::<u8>(),
+            WeightFormat::U16 => align_of::<u16>(),
+            WeightFormat::F32 => align_of::<f32>(),
         }
     }
 }
@@ -88,6 +106,14 @@ impl TexcoordFormat {
             TexcoordFormat::F32 => size_of::<[f32; 2]>(),
         }
     }
+    pub fn align(&self) -> usize {
+        match *self {
+            TexcoordFormat::None => 1,
+            TexcoordFormat::U8 => align_of::<u8>(),
+            TexcoordFormat::U16 => align_of::<u16>(),
+            TexcoordFormat::F32 => align_of::<f32>(),
+        }
+    }
 }
 
 pub trait Texcoord {
@@ -124,6 +150,15 @@ impl ColorFormat {
             ColorFormat::A8B8G8R8 => size_of::<u32>(),
         }
     }
+    pub fn align(&self) -> usize {
+        match *self {
+            ColorFormat::None => 1,
+            ColorFormat::B5G6R5 | ColorFormat::A1B5G5R5 | ColorFormat::A4B4G4R4 => {
+                align_of::<u16>()
+            }
+            ColorFormat::A8B8G8R8 => align_of::<u32>(),
+        }
+    }
 }
 
 pub trait Color {}
@@ -147,6 +182,14 @@ impl NormalFormat {
             NormalFormat::I8 => size_of::<[i8; 3]>(),
             NormalFormat::I16 => size_of::<[i16; 3]>(),
             NormalFormat::F32 => size_of::<[f32; 3]>(),
+        }
+    }
+    pub fn align(&self) -> usize {
+        match *self {
+            NormalFormat::None => 1,
+            NormalFormat::I8 => align_of::<i8>(),
+            NormalFormat::I16 => align_of::<i16>(),
+            NormalFormat::F32 => align_of::<f32>(),
         }
     }
 }
@@ -181,6 +224,13 @@ impl PositionFormat {
             PositionFormat::I8 => size_of::<[i8; 3]>(),
             PositionFormat::I16 => size_of::<[i16; 3]>(),
             PositionFormat::F32 => size_of::<[f32; 3]>(),
+        }
+    }
+    pub fn align(&self) -> usize {
+        match *self {
+            PositionFormat::I8 => align_of::<i8>(),
+            PositionFormat::I16 => align_of::<i16>(),
+            PositionFormat::F32 => align_of::<f32>(),
         }
     }
 }
@@ -397,12 +447,39 @@ impl MeshDescriptionBuilder {
     }
 
     pub fn build(&self) -> MeshDescription {
+        fn align(offset: usize, alignment: usize) -> usize {
+            offset + (alignment - (offset % alignment)) % alignment
+        }
         let weight_count = self.weight_count.0;
-        let texcoord_offset = self.weight_format.stride() * weight_count;
-        let color_offset = texcoord_offset + self.texcoord_format.stride();
-        let normal_offset = color_offset + self.color_format.stride();
-        let position_offset = normal_offset + self.normal_format.stride();
-        let stride = position_offset + self.position_format.stride();
+        let texcoord_offset = align(
+            self.weight_format.stride() * weight_count,
+            self.texcoord_format.align(),
+        );
+        let color_offset = align(
+            texcoord_offset + self.texcoord_format.stride(),
+            self.color_format.align(),
+        );
+        let normal_offset = align(
+            color_offset + self.color_format.stride(),
+            self.normal_format.align(),
+        );
+        let position_offset = align(
+            normal_offset + self.normal_format.stride(),
+            self.position_format.align(),
+        );
+        let stride = align(position_offset + self.position_format.stride(), {
+            if self.weight_format != WeightFormat::None {
+                self.weight_format.align()
+            } else if self.texcoord_format != TexcoordFormat::None {
+                self.texcoord_format.align()
+            } else if self.color_format != ColorFormat::None {
+                self.color_format.align()
+            } else if self.normal_format != NormalFormat::None {
+                self.normal_format.align()
+            } else {
+                self.position_format.align()
+            }
+        });
         MeshDescription {
             index_format: self.index_format,
             weight_format: self.weight_format,
