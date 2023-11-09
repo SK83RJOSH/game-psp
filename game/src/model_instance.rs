@@ -117,8 +117,12 @@ impl Appliable for Material {
     fn apply(&self) {
         unsafe {
             sceGuAlphaFunc(AlphaFunc::Greater, self.alpha_cutoff as i32, 0xff);
-            sceGuMaterial(LightComponent::AMBIENT, 0xffffffff);
-            sceGuMaterial(LightComponent::DIFFUSE, 0xffffffff);
+            sceGuModelColor(
+                self.emission_color,
+                0xffffffff,
+                self.diffuse_color,
+                0xffffffff,
+            );
             let state_flags = {
                 GuStateFlags::from_bits_retain(sceGuGetAllStatus()) & !Material::STATE_FLAGS_MASK
             };
