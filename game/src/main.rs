@@ -39,18 +39,18 @@ impl Default for GraphicsBuffer {
 struct Gizmo {
     vertex_type: VertexType,
     vertex_count: i32,
-    vertex_buffer: Align16<[u8; 0xFFF]>,
+    vertex_buffer: Align16<[u8; 0xFF]>,
     morph_weight: f32,
 }
 
 impl Gizmo {
     fn new() -> Result<Self, psp_mesh_writer::Error> {
-        let mesh_description = MeshDescriptionBuilder::new(PositionFormat::F32)
+        let mesh_description = MeshDescriptionBuilder::new(PositionFormat::I16)
             .color_format(ColorFormat::A8B8G8R8)
             .morph_count(COUNT_2)
             .build();
         let vertex_type = VertexType::from_bits_truncate(mesh_description.clone().flags() as i32);
-        let mut vertex_buffer = Align16([0u8; 0xFFF]);
+        let mut vertex_buffer = Align16([0u8; 0xFF]);
         let vertex_count = MeshWriter::new(mesh_description, &mut vertex_buffer.0)
             .colors_morph(&[
                 [0xff0000ff_u32, 0xffffff00_u32],
@@ -61,12 +61,12 @@ impl Gizmo {
                 [0xffff0000_u32, 0xff00ffff_u32],
             ])?
             .positions_morph(&[
-                [[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]],
-                [[-1.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
-                [[0.0, 1.0, 0.0], [0.0, -1.0, 0.0]],
-                [[0.0, -1.0, 0.0], [0.0, 1.0, 0.0]],
-                [[0.0, 0.0, 1.0], [0.0, 0.0, -1.0]],
-                [[0.0, 0.0, -1.0], [0.0, 0.0, 1.0]],
+                [[i16::MAX, 0, 0], [i16::MIN, 0, 0]],
+                [[i16::MIN, 0, 0], [i16::MAX, 0, 0]],
+                [[0, i16::MAX, 0], [0, i16::MIN, 0]],
+                [[0, i16::MIN, 0], [0, i16::MAX, 0]],
+                [[0, 0, i16::MAX], [0, 0, i16::MIN]],
+                [[0, 0, i16::MIN], [0, 0, i16::MAX]],
             ])?
             .advance_vertex(6)?
             .tell_vertex() as i32;
@@ -89,6 +89,9 @@ impl Gizmo {
             } else {
                 self.morph_weight
             };
+
+            sceGuDisable(GuState::Texture2D);
+            sceGuModelColor(0x00000000, 0xffffffff, 0xffffffff, 0xffffffff);
 
             sceGuMorphWeight(0, weight);
             sceGuMorphWeight(1, 1.0 - weight);
@@ -128,8 +131,9 @@ impl World {
             let bytes = include_bytes!("../res/BoxVertexColors.psp");
             let model: psp_file_formats::Model = postcard::from_bytes(bytes).unwrap();
             let mut instance = ModelInstance::from(model);
-            instance.rotation = [45_f32.to_radians(), 45_f32.to_radians(), 0.0];
-            instance.position = [1.0, 1.0, -5.0];
+            instance.rotation = [45_f32.to_radians(), 15_f32.to_radians(), 0.0];
+            instance.position = [0.0, 0.0, -5.0];
+            instance.scale = [1.0; 3];
             instance
         };
 
@@ -141,10 +145,11 @@ impl World {
     }
 
     fn draw(&mut self) {
-        for model in &self.models {
+        let delta = self.timer.delta_f32();
+        for model in &mut self.models {
+            model.rotation[1] += delta * 45_f32.to_radians();
             model.draw();
         }
-        let delta = self.timer.delta_f32();
         if let Some(gizmo) = &mut self.gizmo {
             gizmo.draw(delta);
         }
@@ -231,7 +236,7 @@ fn init_graphics(buffer: &mut GraphicsBuffer) {
         sceGuTexFilter(TextureFilter::Nearest, TextureFilter::Nearest);
         sceGuTexFunc(TextureEffect::Modulate, TextureColorComponent::Rgba);
         sceGuTexWrap(GuTexWrapMode::Repeat, GuTexWrapMode::Repeat);
-        sceGuEnable(GuState::Texture2D);
+        sceGuDisable(GuState::Texture2D);
 
         sceGuStencilFunc(StencilFunc::Equal, 0x00, 0xff);
         sceGuStencilOp(
@@ -256,6 +261,7 @@ fn init_graphics(buffer: &mut GraphicsBuffer) {
         sceGuEnable(GuState::Blend);
 
         sceGuAmbient(0xffffffff);
+        sceGuModelColor(0x00000000, 0xffffffff, 0xffffffff, 0xffffffff);
         sceGuShadeModel(ShadingModel::Smooth);
         sceGuEnable(GuState::Lighting);
 
