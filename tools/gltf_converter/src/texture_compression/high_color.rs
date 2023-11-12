@@ -73,7 +73,7 @@ fn texture_format(
     masked: &HashSet<usize>,
 ) -> PspTextureFormat {
     let (blended, masked) = (blended.contains(index), masked.contains(index));
-    if blended && masked {
+    if blended {
         PspTextureFormat::Psm4444
     } else if masked {
         PspTextureFormat::Psm5551
