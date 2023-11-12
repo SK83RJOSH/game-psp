@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 
 use aligned_vec::AVec;
-use bytemuck::must_cast;
 use itertools::Itertools;
 
 type PspMaterial = psp_file_formats::model::Material;
@@ -56,17 +55,21 @@ fn texture_shuffle_data(data: &[u8], compressor: TexpressoCompressor) -> Vec<u8>
     match compressor {
         TexpressoCompressor::Bc1 => data
             .tuples()
-            .map(|(a, b, c, d)| -> u64 { must_cast([c, d, a, b]) })
+            .map(|(a, b, c, d)| -> u64 { bytemuck::must_cast([c, d, a, b]) })
             .flat_map(|v| v.to_ne_bytes())
             .collect_vec(),
         TexpressoCompressor::Bc2 => data
             .tuples()
-            .map(|(a, b, c, d, e, f, g, h)| -> u128 { must_cast([g, h, e, f, a, b, c, d]) })
+            .map(|(a, b, c, d, e, f, g, h)| -> u128 {
+                bytemuck::must_cast([g, h, e, f, a, b, c, d])
+            })
             .flat_map(|v| v.to_ne_bytes())
             .collect_vec(),
         TexpressoCompressor::Bc3 => data
             .tuples()
-            .map(|(a, b, c, d, e, f, g, h)| -> u128 { must_cast([g, h, e, f, b, c, d, a]) })
+            .map(|(a, b, c, d, e, f, g, h)| -> u128 {
+                bytemuck::must_cast([g, h, e, f, b, c, d, a])
+            })
             .flat_map(|v| v.to_ne_bytes())
             .collect_vec(),
         _ => panic!("unsupported texpressor compressor"),
