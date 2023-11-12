@@ -82,7 +82,7 @@ pub type TexturePixelFormat = TexturePixelFormatDef;
 #[cfg(feature = "psp")]
 pub type TexturePixelFormat = psp::sys::TexturePixelFormat;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Copy)]
 #[cfg_attr(feature = "psp", serde(remote = "TexturePixelFormat"))]
 #[repr(u32)]
 pub enum TexturePixelFormatDef {

@@ -1,16 +1,15 @@
 use std::{collections::HashMap, io::Write, path::PathBuf};
 
 use aligned_vec::AVec;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use gltf::{accessor, Semantic};
 use thiserror::Error;
 
 mod image;
 mod material;
 mod sampler;
-
-mod compression;
 mod stripping;
+mod texture_compression;
 
 #[derive(Debug)]
 pub enum AccessorSemantic {
@@ -79,14 +78,39 @@ impl From<psp_mesh_writer::Error> for Error {
 
 type Result<T, E = Error> = core::result::Result<T, E>;
 
+#[derive(ValueEnum, Debug, Clone, PartialEq)]
+enum TextureCompression {
+    /// DXT/BCn texture compression
+    Dxt,
+    /// High color (16-bit) texture compression
+    HighColor,
+    /// True color (32-bit) texture compression
+    TrueColor,
+}
+
+#[derive(ValueEnum, Debug, Clone, PartialEq)]
+enum VertexCompression {
+    None,
+    Pack,
+}
+
 #[derive(Parser)]
 struct Args {
+    /// glTF file
     #[arg()]
     file: PathBuf,
+    /// Generate mipmaps
     #[arg(short, long, default_value_t = true)]
-    strip: bool,
+    mipmaps: bool,
+    /// Texture compression
+    #[arg(short, long, value_enum, default_value_t = TextureCompression::Dxt)]
+    texture_compression: TextureCompression,
+    /// Vertex compression
+    #[arg(short, long, value_enum, default_value_t = VertexCompression::None)]
+    vertex_compression: VertexCompression,
+    /// Strip unused data
     #[arg(short, long, default_value_t = true)]
-    compress: bool,
+    strip_unused: bool,
 }
 
 fn main() -> Result<()> {
@@ -181,12 +205,14 @@ fn main() -> Result<()> {
         }
     }
 
-    if args.strip {
+    if args.strip_unused {
         stripping::strip_unused(&mut textures, &mut samplers, &mut materials, &mut meshes);
     }
 
-    if args.compress {
-        compression::compress_textures_dxt(&materials, &mut textures);
+    if args.texture_compression == TextureCompression::Dxt {
+        texture_compression::dxt::compress(&materials, &mut textures);
+    } else if args.texture_compression == TextureCompression::HighColor {
+        texture_compression::high_color::compress(&materials, &mut textures);
     }
 
     let mut file = std::fs::OpenOptions::new()
