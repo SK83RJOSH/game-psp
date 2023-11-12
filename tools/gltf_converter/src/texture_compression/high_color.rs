@@ -10,6 +10,10 @@ type PspTextureFormat = psp_file_formats::model::TexturePixelFormat;
 pub fn compress(materials: &[PspMaterial], textures: &mut [PspTexture]) {
     let (blended, masked) = super::texture_usage(materials);
     for (index, texture) in textures.iter_mut().enumerate() {
+        if !matches!(texture.format, PspTextureFormat::Psm8888) {
+            continue;
+        }
+
         let format = texture_format(&index, &blended, &masked);
         texture.format = format;
 
@@ -37,8 +41,8 @@ impl Compressor for PspTextureFormat {
         }
     }
 
-    fn compress(&self, rgba: &[u8], output: &mut [u8]) {
-        let pixels = rgba
+    fn compress(&self, abgr: &[u8], output: &mut [u8]) {
+        let pixels = abgr
             .iter()
             .map(|&v| v as u16)
             .tuples()
@@ -56,15 +60,15 @@ impl Compressor for PspTextureFormat {
 }
 
 pub fn compress_5650((r, g, b, _): (u16, u16, u16, u16)) -> u16 {
-    (r / 8) << 11 | (g / 4) << 5 | (b / 8)
+    (r / 8) | (g / 4) << 5 | (b / 8) << 11
 }
 
 pub fn compress_5551((r, g, b, a): (u16, u16, u16, u16)) -> u16 {
-    (r / 8) << 11 | (g / 8) << 6 | (b / 8) << 1 | (a / 128)
+    (r / 8) | (g / 8) << 5 | (b / 8) << 10 | (a / 128) << 15
 }
 
 pub fn compress_4444((r, g, b, a): (u16, u16, u16, u16)) -> u16 {
-    (r / 16) << 12 | (g / 16) << 8 | (b / 16) << 4 | (a / 16)
+    (r / 16) | (g / 16) << 4 | (b / 16) << 8 | (a / 16) << 12
 }
 
 fn texture_format(

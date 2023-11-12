@@ -14,6 +14,10 @@ type TexpressoCompressor = texpresso::Format;
 pub fn compress(materials: &[PspMaterial], textures: &mut [PspTexture]) {
     let (blended, masked) = super::texture_usage(materials);
     for (index, texture) in textures.iter_mut().enumerate() {
+        if !matches!(texture.format, PspTextureFormat::Psm8888) {
+            continue;
+        }
+
         let (params, compressor, format) = texture_format(&index, &blended, &masked);
         texture.format = format;
 
