@@ -74,7 +74,7 @@ impl Drawable for ModelInstance {
 impl Appliable for Texture {
     fn apply(&self) {
         unsafe {
-            sceGuTexMode(self.format, self.mip_levels, 0, 0);
+            sceGuTexMode(self.format, self.mip_levels, 0, self.swizzle);
             sceGuTexImage(
                 MipmapLevel::None,
                 self.width,

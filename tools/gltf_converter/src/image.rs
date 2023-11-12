@@ -26,6 +26,7 @@ pub fn read_textures(images: &[GltfImageData]) -> Result<Vec<PspTexture>> {
             Ok(PspTexture {
                 format: image_format(image)?,
                 mip_levels: 0,
+                swizzle: 0,
                 width,
                 height,
                 buffer_width: width,
