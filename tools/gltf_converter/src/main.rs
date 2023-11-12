@@ -9,6 +9,7 @@ mod image;
 mod material;
 mod sampler;
 mod stripping;
+mod swizzling;
 mod texture_compression;
 
 #[derive(Debug)]
@@ -100,16 +101,19 @@ struct Args {
     #[arg()]
     file: PathBuf,
     /// Generate mipmaps
-    #[arg(short, long, default_value_t = true)]
+    #[arg(long, default_value_t = false)]
     mipmaps: bool,
+    /// Swizzle texture data
+    #[arg(long, default_value_t = false)]
+    swizzle: bool,
     /// Texture compression
-    #[arg(short, long, value_enum, default_value_t = TextureCompression::Dxt)]
+    #[arg(long, value_enum, default_value_t = TextureCompression::Dxt)]
     texture_compression: TextureCompression,
     /// Vertex compression
-    #[arg(short, long, value_enum, default_value_t = VertexCompression::None)]
+    #[arg(long, value_enum, default_value_t = VertexCompression::None)]
     vertex_compression: VertexCompression,
     /// Strip unused data
-    #[arg(short, long, default_value_t = true)]
+    #[arg(long, default_value_t = false)]
     strip_unused: bool,
 }
 
@@ -213,6 +217,10 @@ fn main() -> Result<()> {
         texture_compression::dxt::compress(&materials, &mut textures);
     } else if args.texture_compression == TextureCompression::HighColor {
         texture_compression::high_color::compress(&materials, &mut textures);
+    }
+
+    if args.swizzle && args.texture_compression != TextureCompression::Dxt {
+        swizzling::swizzle(&mut textures);
     }
 
     let mut file = std::fs::OpenOptions::new()
