@@ -12,36 +12,41 @@ pub fn swizzle(textures: &mut [PspTexture]) {
         }
 
         let pitch = texture_info.get_pitch();
-        let height = texture.data.len() / pitch;
-        let row_blocks = pitch / 16;
-        let row_pitch = (row_blocks - 1) * 8;
 
-        let src = &texture
-            .data
-            .iter()
-            .tuples()
-            .map(|(a, b)| -> u16 { bytemuck::must_cast([*a, *b]) })
-            .tuples()
-            .map(|(a, b, c, d, e, f, g, h)| -> u128 {
-                bytemuck::must_cast([a, b, c, d, e, f, g, h])
-            })
-            .collect_vec();
-        let mut dst = src.clone();
+        for (level, data) in texture.data.iter_mut().enumerate() {
+            let height = data.len() / (pitch >> level);
+            let row_blocks = (pitch >> level) / 16;
+            if row_blocks < 1 {
+                continue;
+            }
+            let row_pitch = (row_blocks - 1) * 8;
 
-        let mut src_pos = 0;
-        let mut dst_pos = 0;
-        for block_y in 0..height {
-            for dst_off in 0..row_blocks {
-                dst[dst_pos + dst_off + (dst_off * 7)] = src[src_pos];
-                src_pos += 1;
+            let src = &data
+                .iter()
+                .tuples()
+                .map(|(a, b)| -> u16 { bytemuck::must_cast([*a, *b]) })
+                .tuples()
+                .map(|(a, b, c, d, e, f, g, h)| -> u128 {
+                    bytemuck::must_cast([a, b, c, d, e, f, g, h])
+                })
+                .collect_vec();
+            let mut dst = src.clone();
+
+            let mut src_pos = 0;
+            let mut dst_pos = 0;
+            for block_y in 0..height {
+                for dst_off in 0..row_blocks {
+                    dst[dst_pos + dst_off + (dst_off * 7)] = src[src_pos];
+                    src_pos += 1;
+                }
+                if (block_y & 7) == 7 {
+                    dst_pos += row_pitch;
+                }
+                dst_pos += 1;
             }
-            if (block_y & 7) == 7 {
-                dst_pos += row_pitch;
-            }
-            dst_pos += 1;
+            *data = AVec::from_slice(16, bytemuck::must_cast_slice(&dst));
         }
         texture.swizzle = 1;
-        texture.data = AVec::from_slice(16, bytemuck::must_cast_slice(&dst));
     }
 }
 

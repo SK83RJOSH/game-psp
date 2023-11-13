@@ -24,12 +24,11 @@ pub struct Model {
 pub struct Texture {
     #[cfg_attr(feature = "psp", serde(with = "TexturePixelFormatDef"))]
     pub format: TexturePixelFormat,
-    pub mip_levels: i32,
     pub swizzle: i32,
     pub width: i32,
     pub height: i32,
     pub buffer_width: i32,
-    pub data: AVec<u8, ConstAlign<16>>,
+    pub data: Vec<AVec<u8, ConstAlign<16>>>,
 }
 
 #[derive(Serialize, Deserialize)]

@@ -18,11 +18,12 @@ pub fn compress(materials: &[PspMaterial], textures: &mut [PspTexture]) {
         texture.format = format;
 
         let (width, height) = (texture.width as usize, texture.height as usize);
-        let mut output = vec![0u8; format.compressed_size(width, height)];
-
-        let input = texture.data.as_slice();
-        format.compress(input, output.as_mut_slice());
-        texture.data = AVec::from_slice(16, &output);
+        for (level, data) in texture.data.iter_mut().enumerate() {
+            let input = data.as_slice();
+            let mut output = vec![0u8; format.compressed_size(width >> level, height >> level)];
+            format.compress(input, output.as_mut_slice());
+            *data = AVec::from_slice(16, &output);
+        }
     }
 }
 
@@ -41,8 +42,8 @@ impl Compressor for PspTextureFormat {
         }
     }
 
-    fn compress(&self, abgr: &[u8], output: &mut [u8]) {
-        let pixels = abgr
+    fn compress(&self, rgba: &[u8], output: &mut [u8]) {
+        let pixels = rgba
             .iter()
             .map(|&v| v as u16)
             .tuples()

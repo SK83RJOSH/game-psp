@@ -25,12 +25,11 @@ pub fn read_textures(images: &[GltfImageData]) -> Result<Vec<PspTexture>> {
             let (width, height) = image_dimensions(image)?;
             Ok(PspTexture {
                 format: image_format(image)?,
-                mip_levels: 0,
                 swizzle: 0,
                 width,
                 height,
                 buffer_width: width,
-                data: AVec::from_slice(16, &image_data(image)?),
+                data: vec![AVec::from_slice(16, &image_data(image)?)],
             })
         })
         .collect()

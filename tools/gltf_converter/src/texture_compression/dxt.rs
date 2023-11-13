@@ -22,11 +22,13 @@ pub fn compress(materials: &[PspMaterial], textures: &mut [PspTexture]) {
         texture.format = format;
 
         let (width, height) = (texture.width as usize, texture.height as usize);
-        let mut output = vec![0u8; compressor.compressed_size(width, height)];
-
-        let input = texture.data.as_slice();
-        compressor.compress(input, width, height, params, output.as_mut_slice());
-        texture.data = AVec::from_slice(16, &texture_shuffle_data(&output, compressor));
+        for (level, data) in texture.data.iter_mut().enumerate() {
+            let input = data.as_slice();
+            let (width, height) = (width >> level, height >> level);
+            let mut output = vec![0u8; compressor.compressed_size(width, height)];
+            compressor.compress(input, width, height, params, output.as_mut_slice());
+            *data = AVec::from_slice(16, &texture_shuffle_data(&output, compressor));
+        }
     }
 }
 

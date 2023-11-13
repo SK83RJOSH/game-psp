@@ -13,6 +13,7 @@ postcard = { workspace = true }
 thiserror = { workspace = true }
 
 clap = { version = "4.4.6", features = ["derive"] }
+image = { version = "0.24.7", default-features = false }
 gltf = { version = "1.3.0", features = ["KHR_materials_unlit"] }
 itertools = { version = "0.11.0" }
 texpresso = { version = "2.0.1" }

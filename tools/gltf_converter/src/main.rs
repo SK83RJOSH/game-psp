@@ -7,6 +7,7 @@ use thiserror::Error;
 
 mod image;
 mod material;
+mod mipmaps;
 mod sampler;
 mod stripping;
 mod swizzling;
@@ -213,10 +214,18 @@ fn main() -> Result<()> {
         stripping::strip_unused(&mut textures, &mut samplers, &mut materials, &mut meshes);
     }
 
+    if args.mipmaps {
+        mipmaps::generate(&materials, &samplers, &mut textures);
+    }
+
     if args.texture_compression == TextureCompression::Dxt {
         texture_compression::dxt::compress(&materials, &mut textures);
     } else if args.texture_compression == TextureCompression::HighColor {
         texture_compression::high_color::compress(&materials, &mut textures);
+    }
+
+    if args.mipmaps && args.texture_compression != TextureCompression::Dxt {
+        mipmaps::strip(&mut textures);
     }
 
     if args.swizzle && args.texture_compression != TextureCompression::Dxt {

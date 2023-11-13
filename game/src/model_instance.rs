@@ -74,14 +74,26 @@ impl Drawable for ModelInstance {
 impl Appliable for Texture {
     fn apply(&self) {
         unsafe {
-            sceGuTexMode(self.format, self.mip_levels, 0, self.swizzle);
-            sceGuTexImage(
-                MipmapLevel::None,
-                self.width,
-                self.height,
-                self.buffer_width,
-                self.data.as_ptr() as _,
-            );
+            sceGuTexMode(self.format, self.data.len() as i32, 0, self.swizzle);
+            for (level, data) in self.data.iter().enumerate() {
+                sceGuTexImage(
+                    match level {
+                        0 => MipmapLevel::None,
+                        1 => MipmapLevel::Level1,
+                        2 => MipmapLevel::Level2,
+                        3 => MipmapLevel::Level3,
+                        4 => MipmapLevel::Level4,
+                        5 => MipmapLevel::Level5,
+                        6 => MipmapLevel::Level6,
+                        7 => MipmapLevel::Level7,
+                        _ => panic!("invalid texture data"),
+                    },
+                    self.width >> level,
+                    self.height >> level,
+                    self.buffer_width >> level,
+                    data.as_ptr() as _,
+                );
+            }
         }
     }
 }

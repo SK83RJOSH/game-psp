@@ -311,6 +311,7 @@ dependencies = [
  "bytemuck",
  "clap",
  "gltf",
+ "image",
  "itertools",
  "postcard",
  "psp_file_formats",
